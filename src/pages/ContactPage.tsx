@@ -5,7 +5,7 @@ import { SectionHeading } from '../components/SectionHeading';
 type ContactCard = {
   label: string;
   title: string;
-  body: string;
+  body?: string;
   icon: string;
   action?: {
     label: string;
@@ -28,10 +28,12 @@ const contactCards: ContactCard[] = [
   },
   {
     label: 'Phone',
-    title: 'Coming Soon',
-    body: 'A dedicated GOATLAND support phone number will be available after the official app launches.',
+    title: 'Phone',
     icon: 'TEL',
-    status: 'Coming Soon',
+    action: {
+      label: '904-871-9937',
+      href: 'tel:9048719937',
+    },
   },
   {
     label: 'Community Support',
@@ -56,7 +58,7 @@ function ContactCard({ card }: { card: ContactCard }) {
         <p className="eyebrow">{card.label}</p>
       </div>
       <h2>{card.title}</h2>
-      <p>{card.body}</p>
+      {card.body ? <p>{card.body}</p> : null}
       {card.status ? <span className="contact-card__status">{card.status}</span> : null}
       {card.action ? (
         card.action.isExternal ? (
@@ -91,7 +93,7 @@ export function ContactPage() {
           <SectionHeading
             eyebrow="Contact"
             title="How to Reach GOATLAND"
-            description="Use the official support email, check the upcoming phone support status, or join the GOATLAND Discord community."
+            description="Use the official support email, support phone number, or GOATLAND Discord community."
           />
 
           <div className="contact-card-grid">

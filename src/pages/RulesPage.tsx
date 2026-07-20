@@ -25,12 +25,6 @@ type Faq = {
       };
 };
 
-type HomeAdvantageStep = {
-  game: string;
-  assignment: string;
-  condition?: string;
-};
-
 const competitionRules: RuleGroup[] = [
   {
     title: 'League Structure',
@@ -69,27 +63,6 @@ const competitionRules: RuleGroup[] = [
 const regularSeasonAllocation = [
   { game: 'Registration positions 1–8', assignment: '4 home series and 3 away series' },
   { game: 'Registration positions 9–16', assignment: '3 home series and 4 away series' },
-];
-
-const leagueHomeAdvantage: HomeAdvantageStep[] = [
-  { game: 'Game 1', assignment: 'Home' },
-  { game: 'Game 2', assignment: 'Home' },
-  { game: 'Game 3', assignment: 'Away' },
-  { game: 'Game 4', assignment: 'Away', condition: 'If necessary' },
-  { game: 'Game 5', assignment: 'Home', condition: 'If necessary' },
-];
-
-const tournamentHomeAdvantage: HomeAdvantageStep[] = [
-  { game: 'Game 1', assignment: 'Home' },
-  { game: 'Game 2', assignment: 'Home' },
-  { game: 'Game 3', assignment: 'Away' },
-  { game: 'Game 4', assignment: 'Away', condition: 'If necessary' },
-  { game: 'Game 5', assignment: 'Home', condition: 'If necessary' },
-];
-
-const tournamentHomeDeterminers = [
-  'Registration order for tournaments that use player-selected bracket seeding.',
-  'Playoff seeding for tournaments that use league qualification.',
 ];
 
 const gameSettings: GameSettings[] = [
@@ -265,48 +238,25 @@ export function RulesPage() {
           </article>
 
           <SectionHeading
-            eyebrow="League Home Advantage Format"
-            title="League Home Advantage Format"
-            description="League play uses a 2-1-2 home advantage format."
+            eyebrow="League Playoffs"
+            title="League Playoff Home Advantage"
+            description="League playoff series use a 2-2-1 home advantage format based on the final regular season standings."
           />
 
-          <div className="home-advantage-grid">
-            {leagueHomeAdvantage.map((step) => (
-              <article className="home-advantage-card" key={step.game}>
-                <span>{step.condition ?? 'Standard'}</span>
-                <h2>{step.game}</h2>
-                <p>{step.assignment}</p>
-              </article>
-            ))}
-          </div>
-
           <article className="preview-card rule-card">
-            <p className="eyebrow">Annual Tournaments</p>
-            <h2>Annual Tournaments</h2>
-            <p>Annual tournaments also use a 2-1-2 home advantage format.</p>
-            <p>Home advantage is determined by:</p>
-            <ul className="feature-list">
-              {tournamentHomeDeterminers.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
+            <p>Home advantage is determined by the final regular season standings.</p>
           </article>
 
           <SectionHeading
-            eyebrow="Tournament Home Advantage Format"
-            title="Tournament Home Advantage Format"
-            description="Annual tournaments use the same 2-1-2 home advantage format."
+            eyebrow="Annual Championships"
+            title="Annual Championship Home Advantage"
+            description="Annual Championship series use two different home advantage formats depending on the round."
           />
 
-          <div className="home-advantage-grid">
-            {tournamentHomeAdvantage.map((step) => (
-              <article className="home-advantage-card" key={`tournament-${step.game}`}>
-                <span>{step.condition ?? 'Standard'}</span>
-                <h2>{step.game}</h2>
-                <p>{step.assignment}</p>
-              </article>
-            ))}
-          </div>
+          <article className="preview-card rule-card">
+            <p>Early Rounds — 1-1-1 Format</p>
+            <p>Elite 8 and Beyond — 2-2-1 Format</p>
+          </article>
 
           <p className="rule-note rule-note--standalone">
             Call of Duty does not use a traditional home/away format. Official CDL map rotation,

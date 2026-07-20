@@ -12,12 +12,16 @@ type LeagueTier = {
     payout: string;
   }[];
   note?: string;
+  qualificationCallout?: {
+    title: string;
+    body: string;
+  };
 };
 
 const leagueTiers: LeagueTier[] = [
   {
     id: 'standard-tier-1',
-    name: 'Standard Tier 1',
+    name: 'Tier 1',
     supportedGames: ['Madden', 'College Football', 'NBA 2K', 'Call of Duty', 'MLB'],
     entryFee: '$50',
     championPrize: '$400',
@@ -30,7 +34,7 @@ const leagueTiers: LeagueTier[] = [
   },
   {
     id: 'standard-tier-2',
-    name: 'Standard Tier 2',
+    name: 'Tier 2',
     supportedGames: ['Madden', 'College Football', 'NBA 2K', 'Call of Duty'],
     entryFee: '$250',
     championPrize: '$1,500',
@@ -43,7 +47,7 @@ const leagueTiers: LeagueTier[] = [
   },
   {
     id: 'standard-tier-3',
-    name: 'Standard Tier 3',
+    name: 'Tier 3',
     supportedGames: ['Madden', 'College Football', 'NBA 2K', 'Call of Duty'],
     entryFee: '$500',
     championPrize: '$4,500',
@@ -53,6 +57,10 @@ const leagueTiers: LeagueTier[] = [
       { position: '4th-5th', payout: '$100 each' },
       { position: '6th-8th', payout: '$50 each' },
     ],
+    qualificationCallout: {
+      title: 'Annual Championship Qualification',
+      body: 'The first 10 Tier 3 League Champions earn an automatic bid into the Annual Championship.',
+    },
   },
   {
     id: 'mlb-tier-2',
@@ -114,6 +122,13 @@ function LeagueTierCard({ tier }: { tier: LeagueTier }) {
           ))}
         </dl>
       </div>
+
+      {tier.qualificationCallout ? (
+        <div className="rule-note">
+          <strong>{tier.qualificationCallout.title}</strong>
+          <p>{tier.qualificationCallout.body}</p>
+        </div>
+      ) : null}
     </article>
   );
 }

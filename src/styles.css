@@ -325,6 +325,134 @@ p {
   box-shadow: var(--shadow-panel);
 }
 
+.home-hero--competitive {
+  isolation: isolate;
+  background:
+    linear-gradient(115deg, rgba(213, 32, 25, 0.22), transparent 38%),
+    linear-gradient(245deg, rgba(246, 181, 30, 0.14), transparent 42%),
+    var(--color-bg);
+}
+
+.home-hero--competitive::after {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  content: "";
+  background:
+    linear-gradient(rgba(246, 181, 30, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(246, 181, 30, 0.055) 1px, transparent 1px);
+  background-size: 3.25rem 3.25rem;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), transparent 78%);
+}
+
+.home-hero__inner--competitive {
+  min-height: calc(100svh - 82px);
+  grid-template-columns: minmax(0, 0.95fr) minmax(280px, 0.8fr);
+}
+
+.home-hero__content--competitive {
+  max-width: 760px;
+}
+
+.home-hero__content--competitive h1 {
+  max-width: 740px;
+  font-size: 6rem;
+}
+
+.home-hero__lead {
+  color: var(--color-text);
+  font-weight: 760;
+}
+
+.hero-prize-callout {
+  display: inline-grid;
+  min-width: min(100%, 22rem);
+  margin-top: var(--space-5);
+  border: 1px solid rgba(246, 181, 30, 0.52);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  background:
+    linear-gradient(135deg, rgba(246, 181, 30, 0.18), transparent 56%),
+    linear-gradient(225deg, rgba(213, 32, 25, 0.24), transparent 58%),
+    var(--color-surface);
+  box-shadow:
+    var(--shadow-panel),
+    0 0 48px rgba(246, 181, 30, 0.14);
+}
+
+.hero-prize-callout span,
+.hero-prize-callout p {
+  color: var(--color-gold);
+  font-size: 0.76rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.hero-prize-callout span {
+  margin-bottom: var(--space-1);
+}
+
+.hero-prize-callout strong {
+  display: block;
+  color: var(--color-text);
+  font-size: 4.25rem;
+  font-weight: 950;
+  line-height: 0.9;
+}
+
+.hero-prize-callout p {
+  margin: var(--space-2) 0 0;
+}
+
+.hero-registration-notice--compact {
+  max-width: max-content;
+  margin-top: var(--space-5);
+  margin-bottom: 0;
+}
+
+.hero-registration-notice--compact .hero-registration-notice__title {
+  margin-bottom: 0;
+}
+
+.home-hero__visual--competitive {
+  display: grid;
+  gap: var(--space-4);
+  justify-items: end;
+}
+
+.home-hero__visual--competitive::before {
+  position: absolute;
+  inset: -2rem -1rem auto auto;
+  z-index: -1;
+  width: min(28rem, 90%);
+  aspect-ratio: 1;
+  border: 1px solid rgba(246, 181, 30, 0.18);
+  border-radius: 999px;
+  content: "";
+  background: radial-gradient(circle, rgba(246, 181, 30, 0.16), transparent 62%);
+  filter: blur(1px);
+}
+
+.hero-arena-stats {
+  display: flex;
+  max-width: 420px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.hero-arena-stats span {
+  border: 1px solid rgba(246, 181, 30, 0.24);
+  border-radius: var(--radius-sm);
+  padding: 0.42rem 0.55rem;
+  color: var(--color-text);
+  background: rgba(255, 255, 255, 0.045);
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
 .page-header__inner {
   min-height: 320px;
 }
@@ -484,6 +612,276 @@ p {
   font-size: 0.78rem;
   font-weight: 900;
   text-transform: uppercase;
+}
+
+.home-prize-section {
+  border-bottom: 1px solid rgba(246, 181, 30, 0.12);
+}
+
+.championship-prize-grid,
+.arena-grid,
+.home-step-grid {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.championship-prize-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.championship-prize-card,
+.arena-card,
+.home-step-grid li,
+.player-benefit-grid li {
+  min-width: 0;
+  border: 1px solid rgba(246, 181, 30, 0.26);
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(145deg, rgba(213, 32, 25, 0.18), transparent 52%),
+    var(--color-surface);
+  box-shadow: var(--shadow-panel);
+}
+
+.championship-prize-card {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-5);
+}
+
+.championship-prize-card h2,
+.arena-card__game,
+.home-step-grid span {
+  color: var(--color-text);
+  font-weight: 950;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.championship-prize-card h2 {
+  margin-bottom: 0;
+  font-size: 1.75rem;
+}
+
+.championship-prize-card div {
+  border-top: 1px solid rgba(246, 181, 30, 0.2);
+  padding-top: var(--space-4);
+}
+
+.championship-prize-card span {
+  display: block;
+  margin-bottom: var(--space-2);
+  color: var(--color-gold);
+  font-size: 0.72rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.championship-prize-card strong {
+  display: block;
+  color: var(--color-text);
+  font-size: 2.3rem;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.championship-prize-card p:last-child {
+  margin-bottom: 0;
+  font-size: 0.85rem;
+  font-weight: 780;
+}
+
+.home-section-link {
+  margin-top: var(--space-5);
+}
+
+.player-benefit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.player-benefit-grid li {
+  position: relative;
+  padding: var(--space-4) var(--space-4) var(--space-4) 3rem;
+  color: var(--color-text);
+  font-weight: 900;
+}
+
+.player-benefit-grid li::before {
+  position: absolute;
+  top: 1.05rem;
+  left: 1rem;
+  display: grid;
+  width: 1.15rem;
+  height: 1.15rem;
+  place-items: center;
+  border: 1px solid var(--color-gold);
+  border-radius: 999px;
+  color: var(--color-gold);
+  content: "✓";
+  font-size: 0.72rem;
+  font-weight: 950;
+}
+
+.arena-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.arena-card {
+  position: relative;
+  display: grid;
+  overflow: hidden;
+  min-height: 260px;
+  padding: var(--space-5);
+  transition:
+    border-color var(--transition),
+    transform var(--transition),
+    background var(--transition);
+}
+
+.arena-card::after {
+  position: absolute;
+  right: -2.6rem;
+  bottom: -2.6rem;
+  width: 8rem;
+  height: 8rem;
+  border: 1px solid rgba(246, 181, 30, 0.2);
+  border-radius: 999px;
+  content: "";
+}
+
+.arena-card:hover,
+.arena-card:focus-visible {
+  border-color: var(--color-border-strong);
+  transform: translateY(-3px);
+}
+
+.arena-card__game {
+  position: relative;
+  z-index: 1;
+  font-size: 1.75rem;
+}
+
+.arena-card ul {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-5) 0;
+  padding: 0;
+  list-style: none;
+}
+
+.arena-card li {
+  color: var(--color-muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.arena-card__cta {
+  position: relative;
+  z-index: 1;
+  align-self: end;
+  color: var(--color-gold);
+  font-size: 0.76rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.home-step-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: home-step;
+}
+
+.home-step-grid li {
+  position: relative;
+  overflow: hidden;
+  padding: var(--space-5);
+}
+
+.home-step-grid li::before {
+  display: block;
+  margin-bottom: var(--space-4);
+  color: rgba(246, 181, 30, 0.72);
+  content: "0" counter(home-step);
+  counter-increment: home-step;
+  font-size: 2.2rem;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.home-step-grid span {
+  display: block;
+  font-size: 1.05rem;
+}
+
+.home-step-grid p {
+  margin: var(--space-3) 0 0;
+}
+
+.progression-preview-section {
+  overflow: hidden;
+}
+
+.home-rank-path {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.home-rank-path li {
+  position: relative;
+  min-width: 0;
+}
+
+.home-rank-path li:not(:last-child)::after {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 0.25rem);
+  width: calc(var(--space-3) - 0.5rem);
+  height: 2px;
+  background: var(--color-gold);
+  content: "";
+}
+
+.home-rank-path span {
+  display: grid;
+  min-height: 7.5rem;
+  place-items: center;
+  border: 1px solid rgba(246, 181, 30, 0.28);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  color: var(--color-text);
+  background:
+    linear-gradient(145deg, rgba(246, 181, 30, 0.1), transparent 54%),
+    var(--color-surface);
+  font-size: 1.1rem;
+  font-weight: 950;
+  line-height: 1;
+  text-align: center;
+  text-transform: uppercase;
+  box-shadow: var(--shadow-panel);
+}
+
+.home-rank-path li:last-child span {
+  border-color: var(--color-border-strong);
+  background:
+    linear-gradient(145deg, rgba(246, 181, 30, 0.22), transparent 54%),
+    linear-gradient(225deg, rgba(213, 32, 25, 0.18), transparent 58%),
+    var(--color-surface);
+}
+
+.home-community-section {
+  border-top: 1px solid rgba(246, 181, 30, 0.14);
 }
 
 .games-overview-grid {
@@ -1122,9 +1520,7 @@ p {
 
 .tournament-intro-grid,
 .qualification-grid,
-.schedule-grid,
-.tournament-rules-grid,
-.prize-card-grid {
+.tournament-rules-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-4);
@@ -1137,27 +1533,20 @@ p {
   font-weight: 700;
 }
 
-.tournament-card-grid,
-.tournament-format-grid {
+.tournament-card-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-4);
 }
 
 .tournament-card,
-.tournament-format-card,
-.schedule-card,
 .tournament-rule-card,
-.prize-card,
 .qualification-card {
   min-width: 0;
 }
 
 .tournament-card h2,
-.tournament-format-card h2,
-.schedule-card h2,
 .tournament-rule-card h2,
-.prize-card h2,
 .qualification-card h2 {
   margin-bottom: var(--space-4);
   font-size: clamp(1.3rem, 2.35vw, 2rem);
@@ -1192,17 +1581,13 @@ p {
 }
 
 .tournament-fact-list,
-.qualification-counts,
-.schedule-list,
-.prize-list {
+.qualification-counts {
   display: grid;
   gap: var(--space-2);
   margin: 0;
 }
 
-.tournament-fact-list div,
-.schedule-list div,
-.prize-list div {
+.tournament-fact-list div {
   display: grid;
   gap: var(--space-1);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
@@ -1210,23 +1595,30 @@ p {
 }
 
 .tournament-fact-list dt,
-.qualification-counts dt,
-.schedule-list dt,
-.prize-list dt {
+.qualification-counts dt {
   color: var(--color-gold);
   font-size: 0.72rem;
   font-weight: 900;
   text-transform: uppercase;
 }
 
-.tournament-fact-list dd,
-.schedule-list dd,
-.prize-list dd {
+.tournament-fact-list dd {
   min-width: 0;
   margin: 0;
   color: var(--color-text);
   font-weight: 800;
   overflow-wrap: anywhere;
+}
+
+.tournament-format-list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding-left: 1rem;
+}
+
+.tournament-format-list li {
+  padding-left: var(--space-1);
 }
 
 .qualification-counts {
@@ -1283,37 +1675,6 @@ p {
   font-size: 0.72rem;
   font-weight: 950;
   text-transform: uppercase;
-}
-
-.tournament-round-grid {
-  display: grid;
-  gap: var(--space-2);
-}
-
-.tournament-round {
-  min-width: 0;
-  border-left: 3px solid rgba(246, 181, 30, 0.62);
-  padding: var(--space-2) var(--space-3);
-  background: rgba(255, 255, 255, 0.035);
-}
-
-.tournament-round span {
-  display: block;
-  margin-bottom: var(--space-1);
-  color: var(--color-gold);
-  font-size: 0.68rem;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-.tournament-round strong {
-  display: block;
-  color: var(--color-text);
-  font-weight: 900;
-}
-
-.tournament-round p {
-  margin: var(--space-1) 0 0;
 }
 
 .tournament-info-notice {
@@ -1932,12 +2293,28 @@ p {
     grid-template-columns: 1fr;
   }
 
+  .home-hero__inner--competitive {
+    min-height: auto;
+  }
+
   .home-hero__visual {
     justify-self: start;
   }
 
+  .home-hero__visual--competitive {
+    justify-items: start;
+  }
+
+  .home-hero__content--competitive h1 {
+    font-size: 4.5rem;
+  }
+
   .home-hero__logo {
     width: min(100%, 320px);
+  }
+
+  .hero-arena-stats {
+    justify-content: flex-start;
   }
 
   .split-section,
@@ -1949,9 +2326,12 @@ p {
   .progression-rank-grid,
   .progression-work-grid,
   .tournament-card-grid,
-  .tournament-format-grid,
   .league-tier-grid,
   .social-card-grid,
+  .championship-prize-grid,
+  .arena-grid,
+  .home-step-grid,
+  .home-rank-path,
   .rules-card-grid,
   .home-advantage-grid,
   .status-banner,
@@ -1965,15 +2345,16 @@ p {
 
   .games-overview-grid,
   .tournament-card-grid,
-  .tournament-format-grid,
   .tournament-intro-grid,
   .qualification-grid,
-  .schedule-grid,
   .tournament-rules-grid,
-  .prize-card-grid,
   .league-tier-grid,
   .contact-card-grid,
   .social-card-grid,
+  .championship-prize-grid,
+  .arena-grid,
+  .home-step-grid,
+  .home-rank-path,
   .game-settings-grid,
   .related-game-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2030,6 +2411,35 @@ p {
     padding-block: var(--space-7);
   }
 
+  .home-hero__inner--competitive {
+    gap: var(--space-5);
+    padding-block: var(--space-5) var(--space-6);
+  }
+
+  .home-hero__content--competitive h1 {
+    max-width: 20rem;
+    font-size: 3.05rem;
+  }
+
+  .home-hero__lead {
+    font-size: 1rem;
+  }
+
+  .hero-prize-callout {
+    width: 100%;
+    margin-top: var(--space-4);
+  }
+
+  .hero-prize-callout strong {
+    font-size: 3.2rem;
+  }
+
+  .hero-registration-notice--compact {
+    width: 100%;
+    max-width: none;
+    margin-top: var(--space-4);
+  }
+
   h1 {
     font-size: 2.55rem;
   }
@@ -2047,16 +2457,18 @@ p {
   .progression-work-grid,
   .progression-driver-list,
   .tournament-card-grid,
-  .tournament-format-grid,
   .tournament-intro-grid,
   .qualification-grid,
-  .schedule-grid,
   .tournament-rules-grid,
-  .prize-card-grid,
   .league-tier-grid,
   .contact-card-grid,
   .social-card-grid,
   .connected-list,
+  .championship-prize-grid,
+  .player-benefit-grid,
+  .arena-grid,
+  .home-step-grid,
+  .home-rank-path,
   .seeding-step-grid,
   .game-settings-grid,
   .related-game-grid,
@@ -2073,6 +2485,18 @@ p {
 
   .progression-roadmap {
     gap: var(--space-5);
+  }
+
+  .home-rank-path {
+    gap: var(--space-5);
+  }
+
+  .home-rank-path li:not(:last-child)::after {
+    top: calc(100% + 0.25rem);
+    left: 50%;
+    width: 2px;
+    height: 1rem;
+    transform: translateX(-50%);
   }
 
   .progression-roadmap li:not(:last-child)::after {
@@ -2092,6 +2516,10 @@ p {
     min-height: 220px;
   }
 
+  .home-hero__visual--competitive {
+    display: none;
+  }
+
   .game-card {
     min-height: 180px;
   }
@@ -2107,6 +2535,7 @@ p {
   .game-overview-card .button-link,
   .status-banner__actions,
   .status-banner__actions .button-link,
+  .hero-actions .button-link,
   .final-cta__actions .button-link {
     width: 100%;
   }

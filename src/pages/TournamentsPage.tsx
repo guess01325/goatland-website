@@ -19,6 +19,7 @@ type Tournament = {
   championPrize: string;
   finalFourPrize: string;
   qualification: string;
+  format: string[];
   rules: string[];
   rounds: TournamentRound[];
 };
@@ -29,11 +30,16 @@ const tournaments: Tournament[] = [
     name: 'GOAT Bowl',
     game: 'EA Sports College Football 27',
     difficulty: 'Heisman',
-    entryFee: 'TBD',
+    entryFee: '$1,000',
     playerCount: '64',
     championPrize: '$25,000',
     finalFourPrize: '$2,000 each',
     qualification: '10 automatic bids',
+    format: [
+      '64-player tournament',
+      'Best of 3 through the Round of 16',
+      'Best of 5 beginning with the Elite 8',
+    ],
     rules: [
       'Same Team',
       'Any official in-game offensive playbook may be used.',
@@ -59,6 +65,11 @@ const tournaments: Tournament[] = [
     championPrize: '$25,000',
     finalFourPrize: '$2,000 each',
     qualification: '10 automatic bids',
+    format: [
+      '64-player tournament',
+      'Best of 3 through the Round of 16',
+      'Best of 5 beginning with the Elite 8',
+    ],
     rules: [
       'Same Team',
       'Any official in-game offensive playbook may be used.',
@@ -84,6 +95,11 @@ const tournaments: Tournament[] = [
     championPrize: '$25,000',
     finalFourPrize: '$2,000 each',
     qualification: '10 automatic bids',
+    format: [
+      '64-player tournament',
+      'Best of 3 through the Round of 16',
+      'Best of 5 beginning with the Elite 8',
+    ],
     rules: ['Same Team'],
     rounds: [
       { name: 'Round of 64', players: '64', date: 'Feb 4', series: 'Best of 3' },
@@ -104,6 +120,12 @@ const tournaments: Tournament[] = [
     championPrize: '$10,000',
     finalFourPrize: '$1,000 each',
     qualification: 'N/A',
+    format: [
+      '32-player tournament',
+      'Begins with the Round of 32',
+      'Best of 3 through the Round of 16',
+      'Best of 5 beginning with the Elite 8',
+    ],
     rules: ['Use your own playbook.', '4-minute quarters.'],
     rounds: [
       { name: 'Round of 32', players: '32', date: 'Dec 10', series: 'Best of 3' },
@@ -119,10 +141,7 @@ const anchorLinks = [
   { label: 'Championships', href: '#championships' },
   { label: 'Qualification', href: '#qualification' },
   { label: 'Seeding', href: '#seeding' },
-  { label: 'Format', href: '#format' },
-  { label: 'Schedule', href: '#schedule' },
   { label: 'Rules', href: '#rules' },
-  { label: 'Prizes', href: '#prizes' },
   { label: 'FAQ', href: '#faq' },
 ];
 
@@ -186,42 +205,15 @@ function TournamentCard({ tournament }: { tournament: Tournament }) {
             <dd>{field.value}</dd>
           </div>
         ))}
-      </dl>
-    </article>
-  );
-}
-
-function TournamentFormatCard({ tournament }: { tournament: Tournament }) {
-  return (
-    <article className="preview-card tournament-format-card">
-      <p className="eyebrow">{tournament.name}</p>
-      <h2>{tournament.name}</h2>
-      <div className="tournament-round-grid">
-        {tournament.rounds.map((round) => (
-          <div className="tournament-round" key={`${tournament.id}-${round.name}`}>
-            <span>{round.players} Players</span>
-            <strong>{round.name}</strong>
-            <p>{round.series}</p>
-          </div>
-        ))}
-      </div>
-    </article>
-  );
-}
-
-function PrizeCard({ tournament }: { tournament: Tournament }) {
-  return (
-    <article className="preview-card prize-card">
-      <p className="eyebrow">{tournament.name}</p>
-      <h2>{tournament.name}</h2>
-      <dl className="prize-list">
         <div>
-          <dt>Champion</dt>
-          <dd>{tournament.championPrize}</dd>
-        </div>
-        <div>
-          <dt>Final Four</dt>
-          <dd>{tournament.finalFourPrize}</dd>
+          <dt>Format</dt>
+          <dd>
+            <ul className="tournament-format-list">
+              {tournament.format.map((item) => (
+                <li key={`${tournament.id}-${item}`}>{item}</li>
+              ))}
+            </ul>
+          </dd>
         </div>
       </dl>
     </article>
@@ -354,49 +346,6 @@ export function TournamentsPage() {
         </div>
       </section>
 
-      <section className="section tournament-page-section" id="format">
-        <div className="container">
-          <SectionHeading
-            eyebrow="Format"
-            title="Tournament Format"
-            description="Early tournament rounds use Best of 3 series. Round of 8 and later rounds use Best of 5 series."
-          />
-
-          <div className="tournament-format-grid">
-            {tournaments.map((tournament) => (
-              <TournamentFormatCard key={tournament.id} tournament={tournament} />
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="section home-section home-section--alt tournament-page-section" id="schedule">
-        <div className="container">
-          <SectionHeading
-            eyebrow="Schedule"
-            title="Tournament Schedule"
-            description="Round dates shown exactly as listed in the Founder Tournament Overview."
-          />
-
-          <div className="schedule-grid">
-            {tournaments.map((tournament) => (
-              <article className="preview-card schedule-card" key={tournament.id}>
-                <p className="eyebrow">{tournament.name}</p>
-                <h2>{tournament.name}</h2>
-                <dl className="schedule-list">
-                  {tournament.rounds.map((round) => (
-                    <div key={`${tournament.id}-${round.name}-date`}>
-                      <dt>{round.name}</dt>
-                      <dd>{round.date}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
       <section className="section tournament-page-section" id="rules">
         <div className="container">
           <SectionHeading
@@ -422,22 +371,6 @@ export function TournamentsPage() {
           <InfoNotice>
             For general competition settings, review the <Link to="/rules">GOATLAND Competition Rules</Link>.
           </InfoNotice>
-        </div>
-      </section>
-
-      <section className="section home-section home-section--alt tournament-page-section" id="prizes">
-        <div className="container">
-          <SectionHeading
-            eyebrow="Prizes"
-            title="Prize Breakdown"
-            description="Final Four prize amounts refer to the payout for each qualifying Final Four participant."
-          />
-
-          <div className="prize-card-grid">
-            {tournaments.map((tournament) => (
-              <PrizeCard key={`${tournament.id}-prize`} tournament={tournament} />
-            ))}
-          </div>
         </div>
       </section>
 

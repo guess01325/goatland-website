@@ -76,7 +76,7 @@ export const supportedGames: SupportedGame[] = [
     landingDetails: [
       { label: 'Supported Tiers', value: 'Tier 1, Tier 2, Tier 3' },
       { label: 'Match Format', value: 'Weekly matchups' },
-      { label: 'Annual Tournament', value: 'Supported; details will be announced' },
+      { label: 'Annual Tournament', value: 'GOAT Bowl' },
     ],
     detailSummaries: [
       {
@@ -134,7 +134,7 @@ export const supportedGames: SupportedGame[] = [
     landingDetails: [
       { label: 'Supported Tiers', value: 'Tier 1, Tier 2, Tier 3' },
       { label: 'Match Format', value: 'Team-based competition' },
-      { label: 'Annual Tournament', value: 'Supported; details will be announced' },
+      { label: 'Annual Tournament', value: 'Super GOAT Bowl' },
     ],
     detailSummaries: [
       {
@@ -192,7 +192,7 @@ export const supportedGames: SupportedGame[] = [
     landingDetails: [
       { label: 'Supported Tiers', value: 'Tier 1, Tier 2, Tier 3' },
       { label: 'Match Format', value: 'Competitive matchups' },
-      { label: 'Annual Tournament', value: 'Supported; details will be announced' },
+      { label: 'Annual Tournament', value: 'GOATLAND Classic' },
     ],
     detailSummaries: [
       {
@@ -250,7 +250,7 @@ export const supportedGames: SupportedGame[] = [
     landingDetails: [
       { label: 'Supported Tiers', value: 'Tier 1, Tier 2, Tier 3' },
       { label: 'Series Format', value: 'Best-of series' },
-      { label: 'Annual Tournament', value: 'Supported; details will be announced' },
+      { label: 'Annual Tournament', value: 'MUT GOATLAND' },
     ],
     detailSummaries: [
       {
@@ -300,6 +300,7 @@ export const supportedGames: SupportedGame[] = [
     landingDetails: [
       { label: 'Supported Tiers', value: 'Tier 1, Tier 2' },
       { label: 'Match Format', value: 'Best of 5; Games 1-4: 7 innings; Game 5: 9 innings' },
+      { label: 'Annual Tournament', value: 'Not Available' },
     ],
     landingCallsToAction: [
       { label: 'View Leagues', path: '/leagues' },
