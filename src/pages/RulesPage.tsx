@@ -37,6 +37,15 @@ const competitionRules: RuleGroup[] = [
     ],
   },
   {
+    title: 'Team Selection',
+    items: [
+      'Players may use any official team during a Best-of-5 series.',
+      'The same player cannot use the same team more than once within the same series.',
+      'Team selections reset for each new weekly series.',
+      'If both players want to use the same team for a game, the home player has first choice. The away player must select a different team.',
+    ],
+  },
+  {
     title: 'Sportsmanship',
     items: [
       'Respect all opponents.',
