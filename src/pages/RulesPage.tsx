@@ -69,7 +69,7 @@ const gameSettings: GameSettings[] = [
   {
     name: 'Madden',
     settings: [
-      { label: 'Difficulty', value: 'Competition (Hardest)' },
+      { label: 'Difficulty', value: 'All-Madden' },
       { label: 'Series', value: 'Best of 5' },
       { label: 'Games 1-4', value: '3 Minute Quarters' },
       { label: 'Game 5', value: '5 Minute Quarters' },
@@ -84,7 +84,7 @@ const gameSettings: GameSettings[] = [
   {
     name: 'College Football',
     settings: [
-      { label: 'Difficulty', value: 'Competition (Hardest)' },
+      { label: 'Difficulty', value: 'Heisman' },
       { label: 'Series', value: 'Best of 5' },
       { label: 'Games 1-4', value: '3 Minute Quarters' },
       { label: 'Game 5', value: '5 Minute Quarters' },
@@ -100,10 +100,10 @@ const gameSettings: GameSettings[] = [
   {
     name: 'NBA 2K',
     settings: [
-      { label: 'Difficulty', value: 'Hardest' },
+      { label: 'Difficulty', value: 'Hall of Fame' },
       { label: 'Series', value: 'Best of 5' },
-      { label: 'Games 1-4', value: '6 Minute Quarters' },
-      { label: 'Game 5', value: '7 Minute Quarters' },
+      { label: 'Games 1-4', value: '4 Minute Quarters' },
+      { label: 'Game 5', value: '5 Minute Quarters' },
       { label: 'Fatigue', value: 'On' },
       { label: 'Classic Teams', value: 'Allowed during tournaments' },
     ],
@@ -111,7 +111,7 @@ const gameSettings: GameSettings[] = [
   {
     name: 'MLB',
     settings: [
-      { label: 'Difficulty', value: 'Hardest' },
+      { label: 'Difficulty', value: 'GOAT' },
       { label: 'Series', value: 'Best of 5' },
       { label: 'Games 1-4', value: '7 Innings' },
       { label: 'Game 5', value: '9 Innings' },

@@ -75,7 +75,11 @@ export const supportedGames: SupportedGame[] = [
       'Registration dates, league formats, entry information, rules, and start dates will be announced through the official GOATLAND website and social channels.',
     landingDetails: [
       { label: 'Supported Tiers', value: 'Tier 1, Tier 2, Tier 3' },
-      { label: 'Match Format', value: 'Weekly matchups' },
+      {
+        label: 'Match Format',
+        value:
+          'Best of 5; Games 1–4: 3 Minute Quarters; Game 5: 5 Minute Quarters; Difficulty: All-Madden',
+      },
       { label: 'Annual Tournament', value: 'GOAT Bowl' },
     ],
     detailSummaries: [
@@ -133,7 +137,11 @@ export const supportedGames: SupportedGame[] = [
       'Final formats, rules, registration dates, and competition schedules will be published once confirmed.',
     landingDetails: [
       { label: 'Supported Tiers', value: 'Tier 1, Tier 2, Tier 3' },
-      { label: 'Match Format', value: 'Team-based competition' },
+      {
+        label: 'Match Format',
+        value:
+          'Best of 5; Games 1–4: 3 Minute Quarters; Game 5: 5 Minute Quarters; Difficulty: Heisman',
+      },
       { label: 'Annual Tournament', value: 'Super GOAT Bowl' },
     ],
     detailSummaries: [
@@ -191,7 +199,11 @@ export const supportedGames: SupportedGame[] = [
       'Registration, competition structure, entry details, and official rules will be announced before signups open.',
     landingDetails: [
       { label: 'Supported Tiers', value: 'Tier 1, Tier 2, Tier 3' },
-      { label: 'Match Format', value: 'Competitive matchups' },
+      {
+        label: 'Match Format',
+        value:
+          'Best of 5; Games 1–4: 4 Minute Quarters; Game 5: 5 Minute Quarters; Difficulty: Hall of Fame',
+      },
       { label: 'Annual Tournament', value: 'GOATLAND Classic' },
     ],
     detailSummaries: [
@@ -249,7 +261,11 @@ export const supportedGames: SupportedGame[] = [
       'Final Call of Duty rules are coming soon and will remain clearly marked as pending until the approved format is added to the blueprint.',
     landingDetails: [
       { label: 'Supported Tiers', value: 'Tier 1, Tier 2, Tier 3' },
-      { label: 'Series Format', value: 'Best-of series' },
+      {
+        label: 'Match Format',
+        value:
+          'Best of 5; Rotation: Game 1 — Hardpoint; Game 2 — Search & Destroy; Game 3 — Control; Game 4 — Hardpoint; Game 5 — Search & Destroy; Difficulty: Official CDL Rules',
+      },
       { label: 'Annual Tournament', value: 'MUT GOATLAND' },
     ],
     detailSummaries: [
@@ -288,7 +304,14 @@ export const supportedGames: SupportedGame[] = [
       'Join structured MLB 27 league play with Tier 1 and Tier 2 support, playoff qualification, and best-of-five match formats.',
     overview:
       'GOATLAND MLB 27 competition gives players structured league paths across Tier 1 and Tier 2 with a clear match format and playoff path.',
-    competitionOptions: ['Tier 1', 'Tier 2', 'Best of 5', 'Games 1-4: 7 innings', 'Game 5: 9 innings'],
+    competitionOptions: [
+      'Tier 1',
+      'Tier 2',
+      'Best of 5',
+      'Games 1–4: 7 Innings',
+      'Game 5: 9 Innings',
+      'Difficulty: GOAT',
+    ],
     howItWorks: [
       'Choose an MLB Tier 1 or Tier 2 league.',
       'Compete through a random 7-week regular season schedule.',
@@ -299,7 +322,10 @@ export const supportedGames: SupportedGame[] = [
     statusText: 'Review the Leagues and Rules pages for current MLB 27 competition details.',
     landingDetails: [
       { label: 'Supported Tiers', value: 'Tier 1, Tier 2' },
-      { label: 'Match Format', value: 'Best of 5; Games 1-4: 7 innings; Game 5: 9 innings' },
+      {
+        label: 'Match Format',
+        value: 'Best of 5; Games 1–4: 7 Innings; Game 5: 9 Innings; Difficulty: GOAT',
+      },
       { label: 'Annual Tournament', value: 'Not Available' },
     ],
     landingCallsToAction: [
@@ -326,7 +352,7 @@ export const supportedGames: SupportedGame[] = [
       {
         eyebrow: 'Match Format',
         title: 'Best-of-five series play',
-        items: ['Best of 5', 'Games 1-4: 7 innings', 'Game 5: 9 innings'],
+        items: ['Best of 5', 'Games 1–4: 7 Innings', 'Game 5: 9 Innings', 'Difficulty: GOAT'],
       },
     ],
     callsToAction: [
