@@ -5,10 +5,10 @@ import { supportedGames as gameList } from '../data/games';
 import { registrationAnnouncement } from '../data/registration';
 
 const championshipPrizes = [
-  { name: 'GOAT Bowl', prize: '$25,000' },
-  { name: 'Super GOAT Bowl', prize: '$25,000' },
-  { name: 'GOATLAND Classic', prize: '$25,000' },
-  { name: 'MUT GOATLAND', prize: '$10,000' },
+  { name: 'GOAT Bowl', game: 'Madden NFL', prize: '$25,000' },
+  { name: 'Super GOAT Bowl', game: 'College Football', prize: '$25,000' },
+  { name: 'GOATLAND Classic', game: 'NBA 2K', prize: '$25,000' },
+  { name: 'MUT GOATLAND', game: 'Madden Ultimate Team', prize: '$10,000' },
 ];
 
 const playerBenefits = [
@@ -126,7 +126,10 @@ export function HomePage() {
             {championshipPrizes.map((championship) => (
               <article className="championship-prize-card" key={championship.name}>
                 <p className="eyebrow">Annual Championship</p>
-                <h2>{championship.name}</h2>
+                <header className="championship-prize-card__heading">
+                  <h2>{championship.name}</h2>
+                  <p>{championship.game}</p>
+                </header>
                 <div>
                   <span>Champion Prize</span>
                   <strong>{championship.prize}</strong>
