@@ -74,6 +74,37 @@ const regularSeasonAllocation = [
   { game: 'Registration positions 9–16', assignment: '3 home series and 4 away series' },
 ];
 
+const leagueSchedule = [
+  {
+    tier: 'Tier 1',
+    regularSeason: ['Regular Season: 7 Weeks', 'League Nights: Monday or Tuesday'],
+    playoffs: ['Monday — Round 1', 'Tuesday — Final Four', 'Wednesday — Championship'],
+  },
+  {
+    tier: 'Tier 2',
+    regularSeason: ['Regular Season: 7 Weeks', 'League Night: Thursday'],
+    playoffs: ['Wednesday — Round 1', 'Thursday — Final Four', 'Friday — Championship'],
+  },
+  {
+    tier: 'Tier 3 (Main Event)',
+    regularSeason: ['Regular Season: 7 Weeks', 'League Night: Saturday'],
+    playoffs: ['Thursday — Round 1', 'Friday — Final Four', 'Saturday — Championship'],
+  },
+];
+
+const matchTimeRequirements = [
+  'League match windows begin at 6:00 PM ET.',
+  'Players may begin their scheduled Best-of-5 series any time after 6:00 PM ET.',
+  'The weekly Best-of-5 series must begin by 9:00 PM ET.',
+  'If a player is unavailable and the series has not begun by 9:00 PM ET, that player will receive a forfeit.',
+];
+
+const playoffSeeding = [
+  'Seeds 1–8 are finalized immediately after the completion of Week 7.',
+  'The playoff bracket is generated from the final regular-season standings.',
+  'League prizes are awarded after the championship according to the published payout structure.',
+];
+
 const gameSettings: GameSettings[] = [
   {
     name: 'Madden',
@@ -221,6 +252,59 @@ export function RulesPage() {
                 {ruleGroup.note ? <p className="rule-note">{ruleGroup.note}</p> : null}
               </article>
             ))}
+          </div>
+
+        </div>
+      </section>
+
+      <section className="section rules-section">
+        <div className="container">
+          <SectionHeading
+            eyebrow="League Rules"
+            title="League Schedule & Match Times"
+            description="Official league schedules, match times, and playoff seeding requirements."
+          />
+
+          <div className="faq-list">
+            {leagueSchedule.map((schedule) => (
+              <article className="preview-card rule-card" key={schedule.tier}>
+                <h2>{schedule.tier}</h2>
+                <ul className="feature-list">
+                  {schedule.regularSeason.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+                <p
+                  className="eyebrow"
+                  style={{ margin: 'var(--space-5) 0 0', paddingLeft: 'calc(1.25rem + var(--space-2))' }}
+                >
+                  Week 8 Playoffs
+                </p>
+                <ul className="feature-list" style={{ marginTop: 'var(--space-3)' }}>
+                  {schedule.playoffs.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </article>
+            ))}
+
+            <article className="preview-card rule-card">
+              <h2>Match Time Requirements</h2>
+              <ul className="feature-list">
+                {matchTimeRequirements.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </article>
+
+            <article className="preview-card rule-card">
+              <h2>Playoff Seeding</h2>
+              <ul className="feature-list">
+                {playoffSeeding.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </article>
           </div>
         </div>
       </section>
