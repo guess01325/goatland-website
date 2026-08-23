@@ -2249,6 +2249,208 @@ p {
   transform: translateX(2px);
 }
 
+.auth-section {
+  display: grid;
+  min-height: calc(100svh - 82px);
+  align-items: center;
+  padding-block: var(--space-8);
+}
+
+.auth-section__inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 480px);
+  gap: var(--space-7);
+  align-items: center;
+}
+
+.auth-intro h1 {
+  max-width: 720px;
+  font-size: clamp(3rem, 8vw, 6.5rem);
+}
+
+.auth-intro > p:last-child {
+  max-width: 620px;
+  font-size: 1.1rem;
+}
+
+.auth-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: clamp(1.25rem, 4vw, 2rem);
+  background:
+    linear-gradient(145deg, rgba(246, 181, 30, 0.1), transparent 42%),
+    var(--color-surface);
+  box-shadow: var(--shadow-panel);
+}
+
+.auth-form {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.auth-form label {
+  color: var(--color-text);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.auth-form input {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 0.9rem;
+  color: var(--color-text);
+  background: rgba(255, 255, 255, 0.055);
+  font: inherit;
+}
+
+.auth-form select {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 0.9rem;
+  color: var(--color-text);
+  background: var(--color-surface-elevated);
+  font: inherit;
+}
+
+.auth-form input:focus,
+.auth-form select:focus {
+  border-color: var(--color-gold);
+  outline: 2px solid rgba(246, 181, 30, 0.18);
+}
+
+.auth-checkbox {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-3);
+  align-items: start;
+  margin-block: var(--space-2);
+  line-height: 1.5;
+  text-transform: none !important;
+}
+
+.auth-checkbox input {
+  width: 1.1rem;
+  min-height: 1.1rem;
+  margin-top: 0.15rem;
+  accent-color: var(--color-gold);
+}
+
+.auth-checkbox a {
+  color: var(--color-gold);
+}
+
+.profile-state-card {
+  max-width: 720px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: clamp(1.25rem, 4vw, 2rem);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-panel);
+}
+
+.auth-form__forgot {
+  justify-self: end;
+  color: var(--color-gold);
+  font-size: 0.8rem;
+  font-weight: 850;
+}
+
+.auth-submit {
+  width: 100%;
+  cursor: pointer;
+}
+
+.auth-submit:disabled,
+.auth-nav-button:disabled,
+.auth-mobile-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-block: var(--space-5);
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  height: 1px;
+  flex: 1;
+  content: "";
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.auth-card__switch {
+  margin: var(--space-5) 0 0;
+  text-align: center;
+}
+
+.auth-card__switch a {
+  color: var(--color-gold);
+  font-weight: 850;
+}
+
+.auth-message {
+  margin: 0;
+  border-left: 3px solid currentColor;
+  padding: var(--space-3);
+  font-size: 0.86rem;
+}
+
+.auth-message--error,
+.header-auth-error {
+  color: #ff8b86;
+  background: rgba(213, 32, 25, 0.12);
+}
+
+.auth-message--success {
+  color: var(--color-gold);
+  background: rgba(246, 181, 30, 0.1);
+}
+
+.auth-loading {
+  color: var(--color-gold);
+  font-size: 1rem;
+  font-weight: 900;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.auth-nav-button,
+.auth-mobile-button {
+  font: inherit;
+  cursor: pointer;
+}
+
+.auth-nav-link,
+.auth-nav-button {
+  border-color: rgba(246, 181, 30, 0.36);
+  color: var(--color-gold);
+  background: rgba(246, 181, 30, 0.08);
+}
+
+.auth-mobile-button {
+  width: 100%;
+  text-align: left;
+}
+
+.header-auth-error {
+  margin: 0;
+  padding: var(--space-2);
+  font-size: 0.8rem;
+}
+
 .site-footer {
   border-top: 1px solid rgba(246, 181, 30, 0.18);
   background: rgba(8, 8, 8, 0.94);
@@ -2287,6 +2489,10 @@ p {
 @media (max-width: 980px) {
   .desktop-nav {
     display: none;
+  }
+
+  .auth-section__inner {
+    grid-template-columns: 1fr;
   }
 
   .menu-button {
@@ -2406,6 +2612,11 @@ p {
 
   .site-header__inner {
     min-height: 72px;
+  }
+
+  .auth-section {
+    min-height: auto;
+    padding-block: var(--space-7);
   }
 
   .brand-link__logo {

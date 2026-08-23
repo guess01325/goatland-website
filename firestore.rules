@@ -1,0 +1,57 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner(playerId) {
+      return request.auth != null && request.auth.uid == playerId;
+    }
+
+    function hasValidPlayerData() {
+      return request.resource.data.keys().hasOnly([
+        'displayName',
+        'email',
+        'dateOfBirth',
+        'state',
+        'accountStatus',
+        'profileComplete',
+        'rulesVersionAccepted',
+        'rulesAcceptedAt',
+        'createdAt',
+        'updatedAt'
+      ])
+      && request.resource.data.displayName is string
+      && request.resource.data.displayName.size() >= 2
+      && request.resource.data.displayName.size() <= 40
+      && request.resource.data.email == request.auth.token.email
+      && request.resource.data.dateOfBirth is string
+      && request.resource.data.state is string
+      && request.resource.data.accountStatus == 'active'
+      && request.resource.data.profileComplete == true
+      && request.resource.data.rulesVersionAccepted is string
+      && request.resource.data.rulesAcceptedAt is timestamp
+      && request.resource.data.createdAt is timestamp
+      && request.resource.data.updatedAt is timestamp;
+    }
+
+    function preservesSystemFields() {
+      return request.resource.data.email == resource.data.email
+        && request.resource.data.accountStatus == resource.data.accountStatus
+        && request.resource.data.profileComplete == resource.data.profileComplete
+        && request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    match /players/{playerId} {
+      allow create: if isOwner(playerId)
+        && hasValidPlayerData()
+        && request.resource.data.rulesAcceptedAt == request.time
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+      allow get: if isOwner(playerId);
+      allow list, delete: if false;
+      allow update: if isOwner(playerId)
+        && hasValidPlayerData()
+        && preservesSystemFields()
+        && request.resource.data.updatedAt == request.time;
+    }
+  }
+}

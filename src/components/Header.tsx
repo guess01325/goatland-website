@@ -1,12 +1,30 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import logo from '../../references/GOATLAND_Logo.png';
+import { getAuthErrorMessage } from '../auth/authErrors';
+import { useAuth } from '../auth/AuthProvider';
 import { mainNavItems } from '../data/navigation';
 
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [logoutError, setLogoutError] = useState('');
+  const [loggingOut, setLoggingOut] = useState(false);
+  const { user, loading, logOut } = useAuth();
 
   const closeMenu = () => setIsMenuOpen(false);
+
+  const handleLogout = async () => {
+    setLogoutError('');
+    setLoggingOut(true);
+    try {
+      await logOut();
+      closeMenu();
+    } catch (error) {
+      setLogoutError(getAuthErrorMessage(error));
+    } finally {
+      setLoggingOut(false);
+    }
+  };
 
   return (
     <header className="site-header">
@@ -31,6 +49,13 @@ export function Header() {
             >
               {item.label}
             </NavLink>
+          ))}
+          {!loading && (user ? (
+            <button className="nav-link auth-nav-button" type="button" onClick={handleLogout} disabled={loggingOut}>
+              {loggingOut ? 'Logging out…' : 'Log out'}
+            </button>
+          ) : (
+            <NavLink className="nav-link auth-nav-link" to="/login">Log in</NavLink>
           ))}
         </nav>
 
@@ -66,6 +91,14 @@ export function Header() {
               {item.label}
             </NavLink>
           ))}
+          {!loading && (user ? (
+            <button className="mobile-nav__link auth-mobile-button" type="button" onClick={handleLogout} disabled={loggingOut}>
+              {loggingOut ? 'Logging out…' : 'Log out'}
+            </button>
+          ) : (
+            <NavLink className="mobile-nav__link" to="/login" onClick={closeMenu}>Log in</NavLink>
+          ))}
+          {logoutError ? <p className="header-auth-error" role="alert">{logoutError}</p> : null}
         </div>
       </nav>
     </header>
