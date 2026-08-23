@@ -53,5 +53,10 @@ service cloud.firestore {
         && preservesSystemFields()
         && request.resource.data.updatedAt == request.time;
     }
+
+    match /games/{gameId} {
+      allow read: if true;
+      allow create, update, delete: if false;
+    }
   }
 }
