@@ -63,5 +63,10 @@ service cloud.firestore {
       allow read: if true;
       allow create, update, delete: if false;
     }
+
+    match /seasons/{seasonId} {
+      allow read: if true;
+      allow create, update, delete: if false;
+    }
   }
 }
