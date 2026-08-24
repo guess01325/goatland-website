@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "seed:games:dev": "node scripts/seed-games-dev.mjs",
+    "seed:tiers:dev": "node scripts/seed-tiers-dev.mjs",
     "typecheck": "tsc -b"
   },
   "dependencies": {
