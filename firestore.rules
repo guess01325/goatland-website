@@ -73,5 +73,87 @@ service cloud.firestore {
       allow read: if true;
       allow create, update, delete: if false;
     }
+
+    function hasValidRegistrationData() {
+      return request.resource.data.keys().hasOnly([
+        'playerId',
+        'seasonTierOfferingId',
+        'status',
+        'competitionRulesVersionAccepted',
+        'competitionRulesAcceptedAt',
+        'refundPolicyVersionAccepted',
+        'refundPolicyAcceptedAt',
+        'registrationOrder',
+        'createdAt',
+        'updatedAt',
+        'submittedAt',
+        'confirmedAt',
+        'cancelledAt'
+      ])
+      && request.resource.data.playerId is string
+      && request.resource.data.seasonTierOfferingId is string
+      && request.resource.data.competitionRulesVersionAccepted is string
+      && request.resource.data.competitionRulesVersionAccepted.size() > 0
+      && request.resource.data.refundPolicyVersionAccepted is string
+      && request.resource.data.refundPolicyVersionAccepted.size() > 0
+      && request.resource.data.competitionRulesAcceptedAt is timestamp
+      && request.resource.data.refundPolicyAcceptedAt is timestamp
+      && request.resource.data.createdAt is timestamp
+      && request.resource.data.updatedAt is timestamp
+      && request.resource.data.submittedAt is timestamp
+      && (request.resource.data.confirmedAt == null
+        || request.resource.data.confirmedAt is timestamp)
+      && (request.resource.data.cancelledAt == null
+        || request.resource.data.cancelledAt is timestamp)
+      && (request.resource.data.registrationOrder == null
+        || request.resource.data.registrationOrder is int);
+    }
+
+    function isOpenOffering(offeringId) {
+      let offering = get(/databases/$(database)/documents/seasonTierOfferings/$(offeringId));
+      return exists(/databases/$(database)/documents/seasonTierOfferings/$(offeringId))
+        && offering.data.status == 'enabled'
+        && offering.data.registrationOpensAt is timestamp
+        && offering.data.registrationClosesAt is timestamp
+        && offering.data.registrationOpensAt <= request.time
+        && offering.data.registrationClosesAt >= request.time;
+    }
+
+    match /registrations/{registrationId} {
+      allow get: if request.auth != null
+        && resource.data.playerId == request.auth.uid;
+      allow list: if false;
+      allow create: if request.auth != null
+        && hasValidRegistrationData()
+        && request.resource.data.playerId == request.auth.uid
+        && !request.resource.data.playerId.matches('.*[|].*')
+        && !request.resource.data.seasonTierOfferingId.matches('.*[|].*')
+        && registrationId == request.resource.data.playerId + '|'
+          + request.resource.data.seasonTierOfferingId
+        && exists(/databases/$(database)/documents/players/$(request.auth.uid))
+        && isOpenOffering(request.resource.data.seasonTierOfferingId)
+        && request.resource.data.status == 'pending_payment'
+        && request.resource.data.registrationOrder == null
+        && request.resource.data.confirmedAt == null
+        && request.resource.data.cancelledAt == null
+        && request.resource.data.competitionRulesAcceptedAt == request.time
+        && request.resource.data.refundPolicyAcceptedAt == request.time
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.submittedAt == request.time;
+      allow update: if request.auth != null
+        && resource.data.playerId == request.auth.uid
+        && hasValidRegistrationData()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'cancelledAt',
+          'updatedAt'
+        ])
+        && resource.data.status == 'pending_payment'
+        && request.resource.data.status == 'cancelled'
+        && request.resource.data.cancelledAt == request.time
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if false;
+    }
   }
 }
