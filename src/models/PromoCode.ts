@@ -1,6 +1,6 @@
 import type { Timestamp } from 'firebase/firestore';
 
-export const PROMO_CODE_STATUSES = ['draft', 'active', 'disabled', 'retired'] as const;
+export const PROMO_CODE_STATUSES = ['active', 'disabled', 'retired'] as const;
 
 export type PromoCodeStatus = (typeof PROMO_CODE_STATUSES)[number];
 
