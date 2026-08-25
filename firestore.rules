@@ -78,6 +78,10 @@ service cloud.firestore {
       allow read, create, update, delete: if false;
     }
 
+    match /promoCodes/{promoCodeId} {
+      allow read, create, update, delete: if false;
+    }
+
     function hasValidRegistrationData() {
       return request.resource.data.keys().hasOnly([
         'playerId',
