@@ -74,6 +74,10 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    match /promoters/{promoterId} {
+      allow read, create, update, delete: if false;
+    }
+
     function hasValidRegistrationData() {
       return request.resource.data.keys().hasOnly([
         'playerId',
