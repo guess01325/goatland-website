@@ -3,6 +3,7 @@ node_modules/
 
 # Production build
 dist/
+functions/lib/
 
 # Logs
 *.log
@@ -20,3 +21,6 @@ dist/
 # Editor settings
 .vscode/
 .idea/
+
+# Local Firebase Functions secrets
+functions/.secret.local

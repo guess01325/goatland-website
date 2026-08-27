@@ -1,0 +1,69 @@
+import { createHash } from 'node:crypto';
+import { getApps, initializeApp } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
+import Stripe from 'stripe';
+import { stripeSecretKey } from './config.js';
+
+if (getApps().length === 0) {
+  initializeApp();
+}
+
+export const db = getFirestore();
+
+export const collections = {
+  payments: 'payments',
+  players: 'players',
+  promoCodes: 'promoCodes',
+  promoters: 'promoters',
+  registrations: 'registrations',
+  seasonTierOfferings: 'seasonTierOfferings',
+  registrationCounters: 'seasonTierOfferingRegistrationCounters',
+  registrationCheckoutLocks: 'registrationCheckoutLocks',
+  stripeWebhookEvents: 'stripeWebhookEvents',
+} as const;
+
+export function getStripe(): Stripe {
+  return new Stripe(stripeSecretKey.value());
+}
+
+const PROMO_CODE_MIN_LENGTH = 3;
+const PROMO_CODE_MAX_LENGTH = 32;
+const PROMO_CODE_PATTERN = /^[A-Z0-9]+(?:-[A-Z0-9]+)*$/;
+
+export function getPromoCodeId(code: string): string {
+  const normalizedCode = code.trim().toUpperCase();
+
+  if (
+    normalizedCode.length < PROMO_CODE_MIN_LENGTH
+    || normalizedCode.length > PROMO_CODE_MAX_LENGTH
+    || !PROMO_CODE_PATTERN.test(normalizedCode)
+  ) {
+    throw new Error('INVALID_PROMO_CODE');
+  }
+
+  return normalizedCode;
+}
+
+export function getPaymentId(
+  playerId: string,
+  registrationId: string,
+  checkoutRequestId: string,
+): string {
+  return createHash('sha256')
+    .update(`${playerId}\0${registrationId}\0${checkoutRequestId}`)
+    .digest('base64url');
+}
+
+export function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+export function getPaymentIntentId(
+  paymentIntent: string | Stripe.PaymentIntent | null,
+): string | null {
+  if (typeof paymentIntent === 'string') {
+    return paymentIntent;
+  }
+
+  return paymentIntent?.id ?? null;
+}

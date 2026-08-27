@@ -18,6 +18,9 @@ export type Registration = {
   competitionRulesAcceptedAt: Timestamp;
   refundPolicyVersionAccepted: string;
   refundPolicyAcceptedAt: Timestamp;
+  promoCodeId: string | null;
+  promoCodeSnapshot: string | null;
+  promoterIdSnapshot: string | null;
   registrationOrder: number | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;

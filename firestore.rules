@@ -91,6 +91,9 @@ service cloud.firestore {
         'competitionRulesAcceptedAt',
         'refundPolicyVersionAccepted',
         'refundPolicyAcceptedAt',
+        'promoCodeId',
+        'promoCodeSnapshot',
+        'promoterIdSnapshot',
         'registrationOrder',
         'createdAt',
         'updatedAt',
@@ -104,6 +107,15 @@ service cloud.firestore {
       && request.resource.data.competitionRulesVersionAccepted.size() > 0
       && request.resource.data.refundPolicyVersionAccepted is string
       && request.resource.data.refundPolicyVersionAccepted.size() > 0
+      && ((request.resource.data.promoCodeId == null
+          && request.resource.data.promoCodeSnapshot == null
+          && request.resource.data.promoterIdSnapshot == null)
+        || (request.resource.data.promoCodeId is string
+          && request.resource.data.promoCodeId.size() > 0
+          && request.resource.data.promoCodeSnapshot is string
+          && request.resource.data.promoCodeSnapshot.size() > 0
+          && request.resource.data.promoterIdSnapshot is string
+          && request.resource.data.promoterIdSnapshot.size() > 0))
       && request.resource.data.competitionRulesAcceptedAt is timestamp
       && request.resource.data.refundPolicyAcceptedAt is timestamp
       && request.resource.data.createdAt is timestamp
@@ -141,6 +153,9 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/players/$(request.auth.uid))
         && isOpenOffering(request.resource.data.seasonTierOfferingId)
         && request.resource.data.status == 'pending_payment'
+        && request.resource.data.promoCodeId == null
+        && request.resource.data.promoCodeSnapshot == null
+        && request.resource.data.promoterIdSnapshot == null
         && request.resource.data.registrationOrder == null
         && request.resource.data.confirmedAt == null
         && request.resource.data.cancelledAt == null
@@ -162,6 +177,22 @@ service cloud.firestore {
         && request.resource.data.cancelledAt == request.time
         && request.resource.data.updatedAt == request.time;
       allow delete: if false;
+    }
+
+    match /payments/{paymentId} {
+      allow read, create, update, delete: if false;
+    }
+
+    match /seasonTierOfferingRegistrationCounters/{offeringId} {
+      allow read, create, update, delete: if false;
+    }
+
+    match /registrationCheckoutLocks/{registrationId} {
+      allow read, create, update, delete: if false;
+    }
+
+    match /stripeWebhookEvents/{eventId} {
+      allow read, create, update, delete: if false;
     }
   }
 }

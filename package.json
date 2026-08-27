@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run build --prefix functions && tsc -b && vite build",
     "lint": "eslint .",
     "seed:games:dev": "node scripts/seed-games-dev.mjs",
+    "seed:payment:emulator": "node scripts/seed-payment-emulator.mjs",
     "seed:tiers:dev": "node scripts/seed-tiers-dev.mjs",
     "typecheck": "tsc -b"
   },
