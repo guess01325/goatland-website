@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import logo from '../../references/GOATLAND_Logo.png';
+import { RegistrationLaunchCountdown } from '../components/RegistrationLaunchCountdown';
 import { SectionHeading } from '../components/SectionHeading';
 import { supportedGames as gameList } from '../data/games';
 import { registrationAnnouncement } from '../data/registration';
@@ -101,18 +102,7 @@ export function HomePage() {
         </div>
       </section>
 
-      <section className="section home-section registration-section" id="registration-announcement">
-        <div className="container registration-section__inner">
-          <SectionHeading
-            eyebrow="Registration"
-            title={registrationAnnouncement.opensLabel}
-            description={registrationAnnouncement.sectionBody}
-          />
-          <Link className="button-link" to={registrationAnnouncement.informationPath}>
-            View Leagues
-          </Link>
-        </div>
-      </section>
+      <RegistrationLaunchCountdown />
 
       <section className="section home-section home-prize-section">
         <div className="container">

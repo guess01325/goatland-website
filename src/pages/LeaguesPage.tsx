@@ -36,7 +36,7 @@ const leagueTiers: LeagueTier[] = [
     id: 'standard-tier-2',
     name: 'Tier 2',
     supportedGames: ['Madden', 'College Football', 'NBA 2K', 'Call of Duty'],
-    entryFee: '$250',
+    entryFee: '$200',
     championPrize: '$1,500',
     playoffPayouts: [
       { position: '1st', payout: '$200' },

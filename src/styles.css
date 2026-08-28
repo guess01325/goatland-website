@@ -508,6 +508,96 @@ p {
   margin-bottom: 0;
 }
 
+.registration-countdown {
+  position: relative;
+  overflow: hidden;
+  border-block: 1px solid var(--color-border);
+  background:
+    radial-gradient(circle at 50% 0%, rgba(246, 181, 30, 0.14), transparent 60%),
+    rgba(5, 5, 5, 0.72);
+}
+
+.registration-countdown__inner {
+  position: relative;
+  text-align: center;
+}
+
+.registration-countdown__inner h2 {
+  margin-inline: auto;
+  color: var(--color-white);
+  font-size: clamp(2.25rem, 6vw, 4.75rem);
+}
+
+.registration-countdown__intro {
+  max-width: 42rem;
+  margin: 0 auto var(--space-6);
+  font-size: 1.05rem;
+}
+
+.registration-countdown__timer {
+  display: grid;
+  max-width: 54rem;
+  margin-inline: auto;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
+}
+
+.registration-countdown__unit {
+  display: grid;
+  min-width: 0;
+  padding: var(--space-5) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: 0 0 28px rgba(246, 181, 30, 0.08);
+}
+
+.registration-countdown__unit strong {
+  color: var(--color-gold);
+  font-size: clamp(2rem, 5vw, 4rem);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.registration-countdown__unit span,
+.registration-countdown__details span,
+.registration-countdown__details strong {
+  text-transform: uppercase;
+}
+
+.registration-countdown__unit span {
+  margin-top: var(--space-3);
+  color: var(--color-muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+}
+
+.registration-countdown__details {
+  margin-top: var(--space-6);
+}
+
+.registration-countdown__details p {
+  margin-bottom: var(--space-2);
+}
+
+.registration-countdown__details p:first-child {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.registration-countdown__details span {
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+}
+
+.registration-countdown__details strong {
+  color: var(--color-text);
+  font-size: 1.15rem;
+}
+
 .section-heading {
   max-width: 760px;
   margin-bottom: var(--space-6);
@@ -2446,6 +2536,15 @@ p {
     width: 100%;
     max-width: none;
     margin-top: var(--space-4);
+  }
+
+  .registration-countdown__timer {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+  }
+
+  .registration-countdown__unit {
+    padding: var(--space-4) var(--space-2);
   }
 
   h1 {
