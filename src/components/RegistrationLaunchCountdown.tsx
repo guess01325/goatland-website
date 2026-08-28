@@ -48,7 +48,7 @@ export function RegistrationLaunchCountdown() {
   return (
     <section className="section home-section registration-countdown" id="registration-announcement">
       <div className="container registration-countdown__inner">
-        <p className="eyebrow">The Competition Is About to Begin</p>
+        <p className="eyebrow">Updated Launch Date: September 4, 2026</p>
         <h2 aria-live="polite">
           {timeRemaining.hasLaunched ? (
             'Registration Is Open'
@@ -57,7 +57,8 @@ export function RegistrationLaunchCountdown() {
           )}
         </h2>
         <p className="registration-countdown__intro">
-          Get ready to compete. Registration for Goatland leagues opens September 4, 2026.
+          Registration opens September 4. We’re making final preparations for launch. Be ready
+          when the countdown hits zero.
         </p>
 
         <div className="registration-countdown__timer" role="timer" aria-label="Time until registration opens">
