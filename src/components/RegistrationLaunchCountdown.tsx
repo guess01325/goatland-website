@@ -72,7 +72,7 @@ export function RegistrationLaunchCountdown() {
 
         <div className="registration-countdown__details">
           <p><span>Registration Opens</span><strong>September 4, 2026</strong></p>
-          <p>Spots are limited. Be ready when registration opens.</p>
+          <p>Be ready when registration opens.</p>
         </div>
       </div>
     </section>
