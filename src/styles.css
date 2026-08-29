@@ -2652,6 +2652,45 @@ p {
   border-top: 1px solid rgba(255, 255, 255, 0.09);
 }
 
+.registration-checkout,
+.checkout-return-card {
+  display: grid;
+  gap: 1.25rem;
+  margin-top: 1.5rem;
+  border: 1px solid rgba(246, 181, 30, 0.28);
+  border-radius: var(--radius-md);
+  background: rgba(12, 17, 24, 0.76);
+  padding: clamp(1.25rem, 3vw, 2rem);
+}
+
+.registration-checkout__summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.registration-checkout__summary div {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.035);
+  padding: 0.9rem;
+}
+
+.registration-checkout__summary dt {
+  color: var(--color-gold);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.registration-checkout__summary dd {
+  margin: 0.3rem 0 0;
+  color: var(--color-white);
+  font-weight: 750;
+}
+
 .registration-policies {
   display: grid;
   gap: var(--space-5);

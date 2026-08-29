@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { LeagueRoster } from '../components/registration/LeagueRoster';
+import { RegistrationCheckout } from '../components/registration/RegistrationCheckout';
 import { RegistrationDetails } from '../components/registration/RegistrationDetails';
 import { RegistrationPolicies } from '../components/registration/RegistrationPolicies';
 import { SelectionCard } from '../components/registration/SelectionCard';
@@ -19,6 +20,13 @@ import {
   CURRENT_COMPETITION_RULES_VERSION,
   CURRENT_REFUND_POLICY_VERSION,
 } from '../data/registrationPolicies';
+import {
+  clearCheckoutAttempt,
+  getCheckoutAttempt,
+  getOrCreateCheckoutAttempt,
+  type CheckoutAttempt,
+} from '../lib/checkoutAttempt';
+import { createRegistrationCheckout } from '../services/checkout';
 import { getRegistrationGames } from '../services/games';
 import { getLeagueStartsForGame } from '../services/leagueStarts';
 import { getLeaguesByRegistrationOffering, getPublicRoster } from '../services/leagues';
@@ -109,6 +117,8 @@ export function RegistrationPage() {
   const [registrationCreating, setRegistrationCreating] = useState(false);
   const [registrationCreateError, setRegistrationCreateError] = useState('');
   const [registrationCreateNotice, setRegistrationCreateNotice] = useState('');
+  const [checkoutStarting, setCheckoutStarting] = useState(false);
+  const [checkoutError, setCheckoutError] = useState('');
   const [roster, setRoster] = useState<PublicRosterEntry[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
   const [rosterError, setRosterError] = useState('');
@@ -117,6 +127,9 @@ export function RegistrationPage() {
   const registrationLoadOfferingId = useRef<string | null>(null);
   const initializedRegistrationId = useRef<string | null>(null);
   const startsLoadContext = useRef('');
+  const checkoutStartingRef = useRef(false);
+  const checkoutAttemptRef = useRef<CheckoutAttempt | null>(null);
+  const currentRegistrationId = useRef<string | null>(null);
 
   const gameId = searchParams.get('game');
   const tierId = searchParams.get('tier');
@@ -133,6 +146,7 @@ export function RegistrationPage() {
     selectedStart && registrationLoadedFor === selectedStart.offering.id,
   );
   const managedRegistration = registrationIsLoaded ? registration : null;
+  currentRegistrationId.current = managedRegistration?.id ?? null;
   const registrationLeague = managedRegistration
     ? leagues.find((league) => league.id === managedRegistration.leagueId) ?? null
     : null;
@@ -169,6 +183,26 @@ export function RegistrationPage() {
     && normalizedLocalAcquisition
     && localPromoValid,
   );
+  const policiesCurrent = Boolean(
+    managedRegistration
+    && managedRegistration.competitionRulesVersionAccepted === CURRENT_COMPETITION_RULES_VERSION
+    && managedRegistration.refundPolicyVersionAccepted === CURRENT_REFUND_POLICY_VERSION
+  );
+  const checkoutEligible = Boolean(
+    managedRegistration?.status === 'pending_payment'
+    && policiesCurrent
+    && selectedGame
+    && selectedTier
+    && selectedStart
+    && registrationLeague
+    && registrationLeague.registrationOfferingId === managedRegistration.registrationOfferingId
+    && selectedStart.offering.id === managedRegistration.registrationOfferingId
+    && localPromoValid
+    && !acquisitionDirty
+    && !acquisitionSaving
+    && !leagueSwitching
+    && !registrationLoading
+  );
 
   useEffect(() => {
     const nextOfferingId = selectedStart?.offering.id ?? null;
@@ -187,8 +221,19 @@ export function RegistrationPage() {
     setRegistrationCreating(false);
     setRegistrationCreateError('');
     setRegistrationCreateNotice('');
+    setCheckoutStarting(false);
+    setCheckoutError('');
+    checkoutStartingRef.current = false;
+    checkoutAttemptRef.current = null;
     initializedRegistrationId.current = null;
   }, [detailsOfferingId, selectedStart]);
+
+  useEffect(() => {
+    if (managedRegistration?.status === 'confirmed') {
+      clearCheckoutAttempt(managedRegistration.id, managedRegistration.registrationOfferingId);
+      checkoutAttemptRef.current = null;
+    }
+  }, [managedRegistration]);
 
   useEffect(() => {
     if (
@@ -522,11 +567,17 @@ export function RegistrationPage() {
     setAcquisitionSaveError('');
     try {
       await updateRegistrationAcquisitionSource(offeringAtRequest, normalizedAcquisition);
-      if (currentOfferingId.current !== offeringAtRequest) return;
+      if (
+        currentOfferingId.current !== offeringAtRequest
+        || currentRegistrationId.current !== managedRegistration.id
+      ) return;
       setAcquisitionReloadPending(true);
       refreshRegistrationState();
     } catch {
-      if (currentOfferingId.current !== offeringAtRequest) return;
+      if (
+        currentOfferingId.current !== offeringAtRequest
+        || currentRegistrationId.current !== managedRegistration.id
+      ) return;
       setAcquisitionSaveError(
         'Your registration details could not be updated. Your registration may have changed or checkout may already be in progress.',
       );
@@ -632,7 +683,89 @@ export function RegistrationPage() {
     selectedStart,
   ]);
 
-  const currentStep = policiesAvailable ? 6 : detailsAvailable ? 5 : selectedStart ? 4 : selectedTier ? 3 : selectedGame ? 2 : 1;
+  const beginCheckout = useCallback(async () => {
+    if (
+      !checkoutEligible
+      || !managedRegistration
+      || !selectedStart
+      || checkoutStartingRef.current
+    ) return;
+
+    const offeringAtRequest = selectedStart.offering.id;
+    const existingAttempt = checkoutAttemptRef.current ?? getCheckoutAttempt();
+    const registrationPath = `/register${searchParams.size ? `?${searchParams.toString()}` : ''}`;
+    const attempt = existingAttempt?.registrationId === managedRegistration.id
+      && existingAttempt.registrationOfferingId === offeringAtRequest
+      ? existingAttempt
+      : getOrCreateCheckoutAttempt(managedRegistration.id, offeringAtRequest, registrationPath);
+    checkoutAttemptRef.current = attempt;
+    checkoutStartingRef.current = true;
+    setCheckoutStarting(true);
+    setCheckoutError('');
+    let navigationStarted = false;
+
+    try {
+      const result = await createRegistrationCheckout({
+        registrationId: managedRegistration.id,
+        checkoutRequestId: attempt.checkoutRequestId,
+        ...(!promoLocked && normalizedLocalPromo ? { promoCode: normalizedLocalPromo } : {}),
+      });
+      if (currentOfferingId.current !== offeringAtRequest) return;
+      window.location.assign(result.checkoutUrl);
+      navigationStarted = true;
+    } catch (error) {
+      if (currentOfferingId.current !== offeringAtRequest) return;
+      const code = typeof (error as { code?: unknown })?.code === 'string'
+        ? (error as { code: string }).code.replace('functions/', '')
+        : '';
+      const message = error instanceof Error ? error.message : '';
+      const promoRejected = message.includes('PromoCode is invalid or unavailable');
+      const attemptEnded = code === 'already-exists'
+        || message.includes('existing Checkout Session is no longer open');
+
+      if (attemptEnded) {
+        clearCheckoutAttempt(managedRegistration.id, offeringAtRequest);
+        checkoutAttemptRef.current = null;
+      }
+
+      if (promoRejected) {
+        setCheckoutError('That promo code could not be used. Check the code or continue without it.');
+      } else if (code === 'failed-precondition' || code === 'not-found' || code === 'already-exists') {
+        setCheckoutError(
+          attemptEnded
+            ? 'That payment attempt is no longer available. Refresh availability before starting a new attempt.'
+            : 'Registration or League availability changed. Review the refreshed details and try again.',
+        );
+        refreshRegistrationState();
+        setStartsRetry((value) => value + 1);
+      } else {
+        setCheckoutError(
+          'Secure checkout could not be opened. Retry this same attempt; no new payment request will be created automatically.',
+        );
+      }
+    } finally {
+      if (
+        !navigationStarted
+        && currentOfferingId.current === offeringAtRequest
+        && currentRegistrationId.current === managedRegistration.id
+      ) {
+        checkoutStartingRef.current = false;
+        setCheckoutStarting(false);
+      }
+    }
+  }, [
+    checkoutEligible,
+    managedRegistration,
+    normalizedLocalPromo,
+    promoLocked,
+    refreshRegistrationState,
+    searchParams,
+    selectedStart,
+  ]);
+
+  const currentStep = managedRegistration?.status === 'pending_payment'
+    ? 7
+    : policiesAvailable ? 6 : detailsAvailable ? 5 : selectedStart ? 4 : selectedTier ? 3 : selectedGame ? 2 : 1;
   const activeGames = useMemo(() => games.filter(({ status }) => status === 'active'), [games]);
   const comingSoonGames = useMemo(
     () => games.filter(({ status }) => status === 'coming_soon'),
@@ -650,7 +783,7 @@ export function RegistrationPage() {
       <section className="section registration-browser-section">
         <div className="container">
           <ol className="registration-steps" aria-label="Registration browsing progress">
-            {['Game', 'Tier', 'Start Date', 'League', 'Details', 'Policies'].map((label, index) => (
+            {['Game', 'Tier', 'Start Date', 'League', 'Details', 'Policies', 'Review & Pay'].map((label, index) => (
               <li
                 className={`${index + 1 === currentStep ? 'registration-steps__current ' : ''}${index + 1 < currentStep ? 'registration-steps__complete' : ''}`}
                 key={label}
@@ -915,14 +1048,36 @@ export function RegistrationPage() {
               {registrationCreateNotice && managedRegistration?.status === 'pending_payment' ? (
                 <p className="registration-details__status" role="status">{registrationCreateNotice}</p>
               ) : null}
+              {managedRegistration?.status === 'pending_payment'
+                && selectedStart
+                && selectedGame
+                && selectedTier
+                && registrationLeague
+                ? (
+                  <RegistrationCheckout
+                    registration={managedRegistration}
+                    offering={selectedStart.offering}
+                    league={registrationLeague}
+                    game={selectedGame}
+                    tier={selectedTier}
+                    leagueStart={selectedStart.leagueStart}
+                    promoCode={normalizedLocalPromo}
+                    promoLocked={promoLocked}
+                    eligible={checkoutEligible}
+                    policiesCurrent={policiesCurrent}
+                    starting={checkoutStarting}
+                    error={checkoutError}
+                    onPay={() => void beginCheckout()}
+                  />
+                ) : null}
             </>
           ) : null}
 
           <div className="status-banner registration-checkout-notice">
             <div>
-              <p className="eyebrow">Registration Preview</p>
-              <h2>Browse now. Checkout later.</h2>
-              <p>Registration checkout will be available after final competition details are published.</p>
+              <p className="eyebrow">Registration Checkout</p>
+              <h2>Review availability before payment.</h2>
+              <p>Stripe Checkout is available only for an eligible pending Registration.</p>
             </div>
           </div>
         </div>

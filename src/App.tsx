@@ -2,6 +2,7 @@ import { Route, Routes } from 'react-router-dom';
 import { RootLayout } from './components/RootLayout';
 import { PlayerProfileGate } from './components/PlayerProfileGate';
 import { ContactPage } from './pages/ContactPage';
+import { CheckoutReturnPage } from './pages/CheckoutReturnPage';
 import { GameDetailPage } from './pages/GameDetailPage';
 import { GamesPage } from './pages/GamesPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
@@ -43,6 +44,8 @@ export default function App() {
         <Route path="onboarding" element={<OnboardingPage />} />
         <Route element={<PlayerProfileGate />}>
           <Route path="register" element={<RegistrationPage />} />
+          <Route path="checkout/success" element={<CheckoutReturnPage mode="success" />} />
+          <Route path="checkout/cancel" element={<CheckoutReturnPage mode="cancel" />} />
         </Route>
         <Route path="*" element={<NotFoundPage />} />
       </Route>
