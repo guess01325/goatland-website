@@ -59,7 +59,7 @@ function eventRecord(event: Stripe.Event, session: Stripe.Checkout.Session, time
   };
 }
 
-async function fulfillSuccessfulCheckout(
+export async function fulfillSuccessfulCheckout(
   event: Stripe.Event,
   session: Stripe.Checkout.Session,
 ): Promise<void> {
@@ -250,7 +250,7 @@ async function fulfillSuccessfulCheckout(
   });
 }
 
-async function expireCheckout(
+export async function expireCheckout(
   event: Stripe.Event,
   session: Stripe.Checkout.Session,
 ): Promise<void> {

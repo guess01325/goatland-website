@@ -10,6 +10,7 @@
     "seed:games:dev": "node scripts/seed-games-dev.mjs",
     "seed:payment:emulator": "node scripts/seed-payment-emulator.mjs",
     "seed:tiers:dev": "node scripts/seed-tiers-dev.mjs",
+    "test:seat-holds:emulator": "firebase emulators:exec --project goatland-development --only auth,firestore \"npm run build --prefix functions && node --test tests/seat-hold-emulator.test.mjs\"",
     "typecheck": "tsc -b"
   },
   "dependencies": {

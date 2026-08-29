@@ -23,8 +23,18 @@ export const collections = {
   stripeWebhookEvents: 'stripeWebhookEvents',
 } as const;
 
+let stripeOverride: Stripe | null = null;
+
 export function getStripe(): Stripe {
-  return new Stripe(stripeSecretKey.value());
+  return stripeOverride ?? new Stripe(stripeSecretKey.value());
+}
+
+export function setStripeForEmulatorTests(stripe: Stripe | null): void {
+  if (!process.env.FIRESTORE_EMULATOR_HOST) {
+    throw new Error('Stripe test overrides require the Firestore emulator.');
+  }
+
+  stripeOverride = stripe;
 }
 
 const PROMO_CODE_MIN_LENGTH = 3;

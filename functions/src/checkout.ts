@@ -302,7 +302,7 @@ async function expireSessionQuietly(session: Stripe.Checkout.Session): Promise<b
   }
 }
 
-async function releaseProvisioningHold(
+export async function releaseProvisioningHold(
   paymentId: string,
   registrationId: string,
   leagueId: string,
