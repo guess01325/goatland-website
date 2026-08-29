@@ -1,19 +1,19 @@
 import type { Timestamp } from 'firebase/firestore';
 
-export const SEASON_TIER_OFFERING_STATUSES = [
+export const REGISTRATION_OFFERING_STATUSES = [
   'draft',
   'enabled',
   'disabled',
   'cancelled',
 ] as const;
 
-export type SeasonTierOfferingStatus = (typeof SEASON_TIER_OFFERING_STATUSES)[number];
+export type RegistrationOfferingStatus = (typeof REGISTRATION_OFFERING_STATUSES)[number];
 
-export type SeasonTierOffering = {
+export type RegistrationOffering = {
   id: string;
-  seasonId: string;
+  leagueStartId: string;
   tierId: string;
-  status: SeasonTierOfferingStatus;
+  status: RegistrationOfferingStatus;
   registrationOpensAt: Timestamp | null;
   registrationClosesAt: Timestamp | null;
   entryFeeCents: number;
@@ -22,4 +22,4 @@ export type SeasonTierOffering = {
   updatedAt: Timestamp;
 };
 
-export type SeasonTierOfferingDocument = Omit<SeasonTierOffering, 'id'>;
+export type RegistrationOfferingDocument = Omit<RegistrationOffering, 'id'>;

@@ -14,15 +14,15 @@ function assertValidRegistrationIdPart(value: string, fieldName: string) {
   }
 }
 
-export function getRegistrationId(playerId: string, seasonTierOfferingId: string): string {
+export function getRegistrationId(playerId: string, registrationOfferingId: string): string {
   assertValidRegistrationIdPart(playerId, 'playerId');
-  assertValidRegistrationIdPart(seasonTierOfferingId, 'seasonTierOfferingId');
+  assertValidRegistrationIdPart(registrationOfferingId, 'registrationOfferingId');
 
-  return `${playerId}${REGISTRATION_ID_SEPARATOR}${seasonTierOfferingId}`;
+  return `${playerId}${REGISTRATION_ID_SEPARATOR}${registrationOfferingId}`;
 }
 
-function getRegistrationReference(playerId: string, seasonTierOfferingId: string) {
-  return doc(db, 'registrations', getRegistrationId(playerId, seasonTierOfferingId));
+function getRegistrationReference(playerId: string, registrationOfferingId: string) {
+  return doc(db, 'registrations', getRegistrationId(playerId, registrationOfferingId));
 }
 
 function getAuthenticatedPlayerId(): string {
@@ -36,10 +36,10 @@ function getAuthenticatedPlayerId(): string {
 }
 
 export async function getRegistration(
-  seasonTierOfferingId: string,
+  registrationOfferingId: string,
 ): Promise<Registration | null> {
   const playerId = getAuthenticatedPlayerId();
-  const snapshot = await getDoc(getRegistrationReference(playerId, seasonTierOfferingId));
+  const snapshot = await getDoc(getRegistrationReference(playerId, registrationOfferingId));
 
   if (!snapshot.exists()) {
     return null;
@@ -53,12 +53,12 @@ export async function getRegistration(
 
 export async function createRegistration(input: CreateRegistrationInput): Promise<string> {
   const playerId = getAuthenticatedPlayerId();
-  const reference = getRegistrationReference(playerId, input.seasonTierOfferingId);
+  const reference = getRegistrationReference(playerId, input.registrationOfferingId);
   const timestamp = serverTimestamp();
 
   await setDoc(reference, {
     playerId,
-    seasonTierOfferingId: input.seasonTierOfferingId,
+    registrationOfferingId: input.registrationOfferingId,
     status: 'pending_payment',
     competitionRulesVersionAccepted: input.competitionRulesVersionAccepted,
     competitionRulesAcceptedAt: timestamp,
@@ -79,12 +79,12 @@ export async function createRegistration(input: CreateRegistrationInput): Promis
 }
 
 export async function cancelRegistration(
-  seasonTierOfferingId: string,
+  registrationOfferingId: string,
 ): Promise<void> {
   const playerId = getAuthenticatedPlayerId();
   const timestamp = serverTimestamp();
 
-  await updateDoc(getRegistrationReference(playerId, seasonTierOfferingId), {
+  await updateDoc(getRegistrationReference(playerId, registrationOfferingId), {
     status: 'cancelled',
     cancelledAt: timestamp,
     updatedAt: timestamp,

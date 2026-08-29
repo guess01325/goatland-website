@@ -12,7 +12,7 @@ export type RegistrationStatus = (typeof REGISTRATION_STATUSES)[number];
 export type Registration = {
   id: string;
   playerId: string;
-  seasonTierOfferingId: string;
+  registrationOfferingId: string;
   status: RegistrationStatus;
   competitionRulesVersionAccepted: string;
   competitionRulesAcceptedAt: Timestamp;
@@ -33,7 +33,7 @@ export type RegistrationDocument = Omit<Registration, 'id'>;
 
 export type CreateRegistrationInput = Pick<
   Registration,
-  | 'seasonTierOfferingId'
+  | 'registrationOfferingId'
   | 'competitionRulesVersionAccepted'
   | 'refundPolicyVersionAccepted'
 >;

@@ -7,8 +7,8 @@ const EMAIL = 'payment-test@goatland.local';
 const PASSWORD = 'Goatland-Local-Payment-Test-2026!';
 const GAME_ID = 'madden-27';
 const TIER_ID = 'tier-1';
-const SEASON_ID = 'payment-test-season';
-const OFFERING_ID = `${SEASON_ID}__${TIER_ID}`;
+const LEAGUE_START_ID = 'payment-test-league-start';
+const OFFERING_ID = `${LEAGUE_START_ID}__${TIER_ID}`;
 const PRINT_TOKEN = process.argv.includes('--print-token');
 
 function requireLocalEmulator(name, value, expectedPort) {
@@ -176,9 +176,9 @@ if (PRINT_TOKEN) {
     updatedAt: now,
   });
 
-  await firestore.collection('seasons').doc(SEASON_ID).set({
+  await firestore.collection('leagueStarts').doc(LEAGUE_START_ID).set({
     gameId: GAME_ID,
-    name: 'Payment Emulator Test Season',
+    name: 'Payment Emulator Test League Start',
     status: 'active',
     timeZone: 'America/New_York',
     startsAt: Timestamp.fromMillis(now.toMillis() - 24 * 60 * 60 * 1000),
@@ -187,8 +187,8 @@ if (PRINT_TOKEN) {
     updatedAt: now,
   });
 
-  await firestore.collection('seasonTierOfferings').doc(OFFERING_ID).set({
-    seasonId: SEASON_ID,
+  await firestore.collection('registrationOfferings').doc(OFFERING_ID).set({
+    leagueStartId: LEAGUE_START_ID,
     tierId: TIER_ID,
     status: 'enabled',
     registrationOpensAt: Timestamp.fromMillis(now.toMillis() - 60 * 60 * 1000),
@@ -201,7 +201,7 @@ if (PRINT_TOKEN) {
 
   await firestore.collection('registrations').doc(registrationId).set({
     playerId: auth.localId,
-    seasonTierOfferingId: OFFERING_ID,
+    registrationOfferingId: OFFERING_ID,
     status: 'pending_payment',
     competitionRulesVersionAccepted: 'payment-emulator-competition-rules-v1',
     competitionRulesAcceptedAt: now,

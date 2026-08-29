@@ -15,7 +15,7 @@ type PaymentData = {
 };
 
 type RegistrationData = {
-  seasonTierOfferingId?: unknown;
+  registrationOfferingId?: unknown;
   status?: unknown;
   registrationOrder?: unknown;
   confirmedAt?: unknown;
@@ -87,13 +87,13 @@ async function fulfillSuccessfulCheckout(
       throw new Error('Stripe Checkout Session does not match Payment.');
     }
 
-    if (typeof registration.seasonTierOfferingId !== 'string') {
+    if (typeof registration.registrationOfferingId !== 'string') {
       throw new Error('Registration offering relationship is invalid.');
     }
 
     const counterRef = db
       .collection(collections.registrationCounters)
-      .doc(registration.seasonTierOfferingId);
+      .doc(registration.registrationOfferingId);
     const counterSnapshot = await transaction.get(counterRef);
     const timestamp = Timestamp.now();
     const providerPaymentIntentId = getPaymentIntentId(session.payment_intent);

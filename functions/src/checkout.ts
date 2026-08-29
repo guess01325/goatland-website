@@ -24,7 +24,7 @@ type CheckoutRequest = {
 
 type RegistrationData = {
   playerId?: unknown;
-  seasonTierOfferingId?: unknown;
+  registrationOfferingId?: unknown;
   status?: unknown;
   promoCodeId?: unknown;
   promoCodeSnapshot?: unknown;
@@ -89,7 +89,7 @@ function validateRegistrationOwner(
     throw new HttpsError('failed-precondition', 'Registration is not awaiting payment.');
   }
 
-  return requireString(registration.seasonTierOfferingId, 'Registration offering');
+  return requireString(registration.registrationOfferingId, 'Registration offering');
 }
 
 function validateOffering(offering: OfferingData, now: Timestamp): { amountCents: number; currency: 'USD' } {
@@ -286,7 +286,7 @@ export const createRegistrationCheckout = onCall(
 
     const registration = registrationSnapshot.data() as RegistrationData;
     const offeringId = validateRegistrationOwner(registration, playerId);
-    const offeringRef = db.collection(collections.seasonTierOfferings).doc(offeringId);
+    const offeringRef = db.collection(collections.registrationOfferings).doc(offeringId);
     const offeringSnapshot = await offeringRef.get();
 
     if (!offeringSnapshot.exists) {

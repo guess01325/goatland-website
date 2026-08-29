@@ -16,8 +16,8 @@ export const collections = {
   promoCodes: 'promoCodes',
   promoters: 'promoters',
   registrations: 'registrations',
-  seasonTierOfferings: 'seasonTierOfferings',
-  registrationCounters: 'seasonTierOfferingRegistrationCounters',
+  registrationOfferings: 'registrationOfferings',
+  registrationCounters: 'registrationOfferingRegistrationCounters',
   registrationCheckoutLocks: 'registrationCheckoutLocks',
   stripeWebhookEvents: 'stripeWebhookEvents',
 } as const;

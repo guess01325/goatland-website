@@ -64,12 +64,12 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
-    match /seasons/{seasonId} {
+    match /leagueStarts/{leagueStartId} {
       allow read: if true;
       allow create, update, delete: if false;
     }
 
-    match /seasonTierOfferings/{offeringId} {
+    match /registrationOfferings/{offeringId} {
       allow read: if true;
       allow create, update, delete: if false;
     }
@@ -85,7 +85,7 @@ service cloud.firestore {
     function hasValidRegistrationData() {
       return request.resource.data.keys().hasOnly([
         'playerId',
-        'seasonTierOfferingId',
+        'registrationOfferingId',
         'status',
         'competitionRulesVersionAccepted',
         'competitionRulesAcceptedAt',
@@ -102,7 +102,7 @@ service cloud.firestore {
         'cancelledAt'
       ])
       && request.resource.data.playerId is string
-      && request.resource.data.seasonTierOfferingId is string
+      && request.resource.data.registrationOfferingId is string
       && request.resource.data.competitionRulesVersionAccepted is string
       && request.resource.data.competitionRulesVersionAccepted.size() > 0
       && request.resource.data.refundPolicyVersionAccepted is string
@@ -130,8 +130,8 @@ service cloud.firestore {
     }
 
     function isOpenOffering(offeringId) {
-      let offering = get(/databases/$(database)/documents/seasonTierOfferings/$(offeringId));
-      return exists(/databases/$(database)/documents/seasonTierOfferings/$(offeringId))
+      let offering = get(/databases/$(database)/documents/registrationOfferings/$(offeringId));
+      return exists(/databases/$(database)/documents/registrationOfferings/$(offeringId))
         && offering.data.status == 'enabled'
         && offering.data.registrationOpensAt is timestamp
         && offering.data.registrationClosesAt is timestamp
@@ -147,11 +147,11 @@ service cloud.firestore {
         && hasValidRegistrationData()
         && request.resource.data.playerId == request.auth.uid
         && !request.resource.data.playerId.matches('.*[|].*')
-        && !request.resource.data.seasonTierOfferingId.matches('.*[|].*')
+        && !request.resource.data.registrationOfferingId.matches('.*[|].*')
         && registrationId == request.resource.data.playerId + '|'
-          + request.resource.data.seasonTierOfferingId
+          + request.resource.data.registrationOfferingId
         && exists(/databases/$(database)/documents/players/$(request.auth.uid))
-        && isOpenOffering(request.resource.data.seasonTierOfferingId)
+        && isOpenOffering(request.resource.data.registrationOfferingId)
         && request.resource.data.status == 'pending_payment'
         && request.resource.data.promoCodeId == null
         && request.resource.data.promoCodeSnapshot == null
@@ -183,7 +183,7 @@ service cloud.firestore {
       allow read, create, update, delete: if false;
     }
 
-    match /seasonTierOfferingRegistrationCounters/{offeringId} {
+    match /registrationOfferingRegistrationCounters/{offeringId} {
       allow read, create, update, delete: if false;
     }
 
