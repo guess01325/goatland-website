@@ -4,7 +4,13 @@ import { onRequest } from 'firebase-functions/v2/https';
 import type Stripe from 'stripe';
 import { stripeSecretKey, stripeWebhookSecret } from './config.js';
 import type { SeatHoldData } from './seatHolds.js';
-import { collections, db, getPaymentIntentId, getStripe } from './shared.js';
+import {
+  collections,
+  db,
+  getPaymentIntentId,
+  getPublicRosterEntryId,
+  getStripe,
+} from './shared.js';
 
 type PaymentData = {
   registrationId?: unknown;
@@ -16,11 +22,21 @@ type PaymentData = {
 };
 
 type RegistrationData = {
+  playerId?: unknown;
   registrationOfferingId?: unknown;
   leagueId?: unknown;
   status?: unknown;
   registrationOrder?: unknown;
   confirmedAt?: unknown;
+};
+
+type PlayerData = {
+  displayName?: unknown;
+};
+
+type PublicRosterData = {
+  displayName?: unknown;
+  registrationOrder?: unknown;
 };
 
 type LeagueData = {
@@ -57,6 +73,55 @@ function eventRecord(event: Stripe.Event, session: Stripe.Checkout.Session, time
     objectId: session.id,
     processedAt: timestamp,
   };
+}
+
+function requireDisplayName(player: PlayerData | undefined): string {
+  if (
+    typeof player?.displayName !== 'string'
+    || player.displayName.length < 2
+    || player.displayName.length > 40
+  ) {
+    throw new Error('Player public display name is invalid.');
+  }
+
+  return player.displayName;
+}
+
+function validatePublicRosterProjection(
+  rosterSnapshot: FirebaseFirestore.DocumentSnapshot,
+  registrationOrder: number,
+): void {
+  const roster = rosterSnapshot.data() as PublicRosterData;
+  if (
+    typeof roster.displayName !== 'string'
+    || roster.displayName.length < 2
+    || roster.displayName.length > 40
+    || roster.registrationOrder !== registrationOrder
+    || Object.keys(roster).length !== 2
+  ) {
+    throw new Error('Public roster projection is inconsistent.');
+  }
+}
+
+async function ensurePublicRosterProjection(
+  transaction: FirebaseFirestore.Transaction,
+  rosterRef: FirebaseFirestore.DocumentReference,
+  rosterSnapshot: FirebaseFirestore.DocumentSnapshot,
+  playerRef: FirebaseFirestore.DocumentReference,
+  registrationOrder: number,
+): Promise<void> {
+  if (rosterSnapshot.exists) {
+    validatePublicRosterProjection(rosterSnapshot, registrationOrder);
+    return;
+  }
+
+  const playerSnapshot = await transaction.get(playerRef);
+  if (!playerSnapshot.exists) {
+    throw new Error('Player was not found for public roster projection.');
+  }
+
+  const displayName = requireDisplayName(playerSnapshot.data() as PlayerData);
+  transaction.create(rosterRef, { displayName, registrationOrder });
 }
 
 export async function fulfillSuccessfulCheckout(
@@ -116,7 +181,9 @@ export async function fulfillSuccessfulCheckout(
     }
 
     if (
-      typeof registration.registrationOfferingId !== 'string'
+      typeof registration.playerId !== 'string'
+      || registration.playerId.length === 0
+      || typeof registration.registrationOfferingId !== 'string'
       || registration.leagueId !== leagueId
       || seatHoldId !== paymentId
     ) {
@@ -126,7 +193,14 @@ export async function fulfillSuccessfulCheckout(
     const offeringRef = db
       .collection(collections.registrationOfferings)
       .doc(registration.registrationOfferingId);
-    const offeringSnapshot = await transaction.get(offeringRef);
+    const playerRef = db.collection(collections.players).doc(registration.playerId);
+    const rosterRef = leagueRef
+      .collection('publicRoster')
+      .doc(getPublicRosterEntryId(leagueId, registrationId));
+    const [offeringSnapshot, rosterSnapshot] = await Promise.all([
+      transaction.get(offeringRef),
+      transaction.get(rosterRef),
+    ]);
 
     if (!offeringSnapshot.exists) {
       throw new Error('Registration offering was not found.');
@@ -156,6 +230,14 @@ export async function fulfillSuccessfulCheckout(
         throw new Error('Succeeded Payment has inconsistent Registration state.');
       }
 
+      await ensurePublicRosterProjection(
+        transaction,
+        rosterRef,
+        rosterSnapshot,
+        playerRef,
+        Number(registration.registrationOrder),
+      );
+
       if (eventRef && event) {
         transaction.create(eventRef, eventRecord(event, session, timestamp));
       }
@@ -169,6 +251,18 @@ export async function fulfillSuccessfulCheckout(
       if (seatHold.status !== 'converted') {
         throw new Error('Confirmed Registration has inconsistent SeatHold state.');
       }
+
+      if (!Number.isInteger(registration.registrationOrder)) {
+        throw new Error('Confirmed Registration has no registration order.');
+      }
+
+      await ensurePublicRosterProjection(
+        transaction,
+        rosterRef,
+        rosterSnapshot,
+        playerRef,
+        Number(registration.registrationOrder),
+      );
 
       transaction.update(paymentRef, {
         status: 'succeeded',
@@ -194,6 +288,16 @@ export async function fulfillSuccessfulCheckout(
     ) {
       throw new Error('Registration is not eligible for payment fulfillment.');
     }
+
+    if (rosterSnapshot.exists) {
+      throw new Error('Pending Registration already has a public roster projection.');
+    }
+
+    const playerSnapshot = await transaction.get(playerRef);
+    if (!playerSnapshot.exists) {
+      throw new Error('Player was not found for public roster projection.');
+    }
+    const displayName = requireDisplayName(playerSnapshot.data() as PlayerData);
 
     const lastAssignedOrder = league.lastAssignedRegistrationOrder;
     const confirmedCount = league.confirmedCount;
@@ -248,6 +352,10 @@ export async function fulfillSuccessfulCheckout(
     transaction.update(seatHoldRef, {
       status: 'converted',
       updatedAt: timestamp,
+    });
+    transaction.create(rosterRef, {
+      displayName,
+      registrationOrder: nextOrder,
     });
     if (eventRef && event) {
       transaction.create(eventRef, eventRecord(event, session, timestamp));

@@ -24,6 +24,12 @@ export const collections = {
   stripeWebhookEvents: 'stripeWebhookEvents',
 } as const;
 
+export function getPublicRosterEntryId(leagueId: string, registrationId: string): string {
+  return createHash('sha256')
+    .update(`public-roster\0${leagueId}\0${registrationId}`)
+    .digest('base64url');
+}
+
 let stripeOverride: Stripe | null = null;
 
 export function getStripe(): Stripe {

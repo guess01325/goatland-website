@@ -9,6 +9,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import type { League, LeagueDocument } from '../models/League';
+import type { PublicRosterEntry } from '../models/PublicRosterEntry';
 
 const leaguesCollection = collection(db, 'leagues');
 const LEAGUE_ID_SEPARATOR = '__league-';
@@ -64,4 +65,11 @@ export async function getLeaguesByRegistrationOffering(
       ...(leagueDocument.data() as LeagueDocument),
     }))
     .sort((firstLeague, secondLeague) => firstLeague.leagueNumber - secondLeague.leagueNumber);
+}
+
+export async function getPublicRoster(leagueId: string): Promise<PublicRosterEntry[]> {
+  const rosterCollection = collection(db, 'leagues', leagueId, 'publicRoster');
+  const snapshot = await getDocs(query(rosterCollection, orderBy('registrationOrder')));
+
+  return snapshot.docs.map((rosterDocument) => rosterDocument.data() as PublicRosterEntry);
 }

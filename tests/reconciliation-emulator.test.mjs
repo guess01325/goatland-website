@@ -129,6 +129,18 @@ async function seedHold(label, {
   const ids = refs(label);
   const now = Timestamp.now();
   const batch = db.batch();
+  batch.set(db.collection('players').doc(`player-${label}`), {
+    displayName: `Player ${label}`,
+    email: `${label}@goatland.local`,
+    dateOfBirth: '1990-01-01',
+    state: 'MA',
+    accountStatus: 'active',
+    profileComplete: true,
+    rulesVersionAccepted: 'test-rules-v1',
+    rulesAcceptedAt: now,
+    createdAt: now,
+    updatedAt: now,
+  });
   batch.set(db.collection('registrations').doc(ids.registrationId), {
     playerId: `player-${label}`,
     registrationOfferingId: OFFERING_ID,
@@ -203,12 +215,13 @@ async function seedUnresolvedPage(status, stripe, count = 100) {
 
 async function readState(label, leagueId = LEAGUE_1_ID) {
   const ids = refs(label);
-  const [leagueSnapshot, holdSnapshot, paymentSnapshot, registrationSnapshot, lockSnapshot] = await Promise.all([
+  const [leagueSnapshot, holdSnapshot, paymentSnapshot, registrationSnapshot, lockSnapshot, rosterSnapshot] = await Promise.all([
     db.collection('leagues').doc(leagueId).get(),
     db.collection('seatHolds').doc(ids.paymentId).get(),
     db.collection('payments').doc(ids.paymentId).get(),
     db.collection('registrations').doc(ids.registrationId).get(),
     db.collection('registrationCheckoutLocks').doc(ids.registrationId).get(),
+    db.collection('leagues').doc(leagueId).collection('publicRoster').get(),
   ]);
   return {
     league: leagueSnapshot.data(),
@@ -216,6 +229,7 @@ async function readState(label, leagueId = LEAGUE_1_ID) {
     payment: paymentSnapshot.data(),
     registration: registrationSnapshot.data(),
     lockExists: lockSnapshot.exists,
+    roster: rosterSnapshot.docs.map((snapshot) => ({ id: snapshot.id, ...snapshot.data() })),
   };
 }
 
@@ -254,6 +268,7 @@ test('SeatHold reconciliation R1-R13 and provisioning', async (t) => {
     assert.equal(state.payment.status, 'expired');
     assert.equal(state.league.activeHoldCount, 0);
     assert.equal(state.lockExists, false);
+    assert.equal(state.roster.length, 0);
   });
 
   await t.test('R3. active plus Stripe paid converts', async () => {
@@ -270,11 +285,16 @@ test('SeatHold reconciliation R1-R13 and provisioning', async (t) => {
       [state.league.activeHoldCount, state.league.confirmedCount, state.league.lastAssignedRegistrationOrder],
       [0, 1, 1],
     );
+    assert.equal(state.roster.length, 1);
     assert.equal(state.hold.status, 'converted');
     assert.equal(state.payment.status, 'succeeded');
     assert.equal(state.registration.status, 'confirmed');
     assert.equal(state.registration.registrationOrder, 1);
     assert.equal(state.lockExists, false);
+    assert.deepEqual(
+      Object.fromEntries(Object.entries(state.roster[0]).filter(([key]) => key !== 'id')),
+      { displayName: 'Player r3', registrationOrder: 1 },
+    );
   });
 
   await t.test('R4. converted hold is not scanned or mutated', async () => {
@@ -315,6 +335,7 @@ test('SeatHold reconciliation R1-R13 and provisioning', async (t) => {
       [state.league.activeHoldCount, state.league.confirmedCount, state.league.lastAssignedRegistrationOrder],
       [0, 1, 1],
     );
+    assert.equal(state.roster.length, 1);
   });
 
   await t.test('R7. repeated expired reconciliation does not double-release', async () => {
@@ -347,6 +368,7 @@ test('SeatHold reconciliation R1-R13 and provisioning', async (t) => {
       [state.league.activeHoldCount, state.league.confirmedCount, state.league.lastAssignedRegistrationOrder],
       [0, 1, 1],
     );
+    assert.equal(state.roster.length, 1);
   });
 
   await t.test('R9. reconciliation versus expired webhook releases once', async () => {
@@ -380,6 +402,7 @@ test('SeatHold reconciliation R1-R13 and provisioning', async (t) => {
     assert.equal(state.hold.status, 'active');
     assert.equal(state.league.activeHoldCount, 1);
     assert.equal(state.lockExists, true);
+    assert.equal(state.roster.length, 0);
   });
 
   await t.test('R11. missing or inconsistent session keeps hold reserved', async () => {
@@ -412,6 +435,7 @@ test('SeatHold reconciliation R1-R13 and provisioning', async (t) => {
     assert.equal(state.hold.status, 'active');
     assert.equal(state.registration.status, 'pending_payment');
     assert.equal(state.league.activeHoldCount, 1);
+    assert.equal(state.roster.length, 0);
   });
 
   await t.test('R12. reconciled paid conversion fills League', async () => {
@@ -464,6 +488,8 @@ test('SeatHold reconciliation R1-R13 and provisioning', async (t) => {
       [second.league.confirmedCount, second.league.activeHoldCount, second.league.lastAssignedRegistrationOrder],
       [6, 0, 6],
     );
+    assert.equal(first.roster.length, 1);
+    assert.equal(second.roster.length, 1);
   });
 
   await t.test('P1. provisioning hold without session ID remains reserved for review', async () => {
@@ -479,6 +505,7 @@ test('SeatHold reconciliation R1-R13 and provisioning', async (t) => {
     assert.equal(state.hold.status, 'provisioning');
     assert.equal(state.league.activeHoldCount, 1);
     assert.equal(state.lockExists, true);
+    assert.equal(state.roster.length, 0);
   });
 
   await t.test('P2. provisioning hold with provider-expired session releases safely', async () => {
@@ -492,6 +519,7 @@ test('SeatHold reconciliation R1-R13 and provisioning', async (t) => {
     assert.equal(state.hold.status, 'released');
     assert.equal(state.league.activeHoldCount, 0);
     assert.equal(state.lockExists, false);
+    assert.equal(state.roster.length, 0);
   });
 
   await t.test('F1. more than 100 unresolved active holds do not starve an expired hold', async () => {

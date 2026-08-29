@@ -9,10 +9,15 @@ import {
   signInWithEmailAndPassword,
 } from 'firebase/auth';
 import {
+  collection,
   connectFirestoreEmulator,
+  deleteDoc,
   doc,
+  getDoc,
+  getDocs,
   getFirestore as getClientFirestore,
   serverTimestamp,
+  setDoc,
   updateDoc,
 } from 'firebase/firestore';
 
@@ -40,7 +45,11 @@ const requireFromFunctions = createRequire(
   new URL('../functions/package.json', import.meta.url),
 );
 const { Timestamp } = requireFromFunctions('firebase-admin/firestore');
-const { db, setStripeForEmulatorTests } = await import('../functions/lib/shared.js');
+const {
+  db,
+  getPublicRosterEntryId,
+  setStripeForEmulatorTests,
+} = await import('../functions/lib/shared.js');
 const {
   createRegistrationCheckout,
   releaseProvisioningHold,
@@ -217,12 +226,13 @@ async function documents(collectionName) {
 }
 
 async function state(label, leagueId = LEAGUE_1_ID) {
-  const [league, registration, holds, payments, lock] = await Promise.all([
+  const [league, registration, holds, payments, lock, roster] = await Promise.all([
     db.collection('leagues').doc(leagueId).get(),
     db.collection('registrations').doc(registrationId(label)).get(),
     documents('seatHolds'),
     documents('payments'),
     db.collection('registrationCheckoutLocks').doc(registrationId(label)).get(),
+    db.collection('leagues').doc(leagueId).collection('publicRoster').get(),
   ]);
   return {
     league: league.data(),
@@ -230,6 +240,7 @@ async function state(label, leagueId = LEAGUE_1_ID) {
     holds,
     payments,
     lock,
+    roster: roster.docs.map((snapshot) => ({ id: snapshot.id, ...snapshot.data() })),
   };
 }
 
@@ -264,6 +275,23 @@ async function cancelAsClient(label) {
       cancelledAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
+  } finally {
+    await deleteApp(app);
+  }
+}
+
+async function withClient(label, action) {
+  const app = initializeApp({ projectId: PROJECT_ID, apiKey: 'emulator-only' }, `client-${appSequence += 1}`);
+  const auth = getAuth(app);
+  connectAuthEmulator(auth, `http://${authHostname}:${authPort}`, { disableWarnings: true });
+  if (label) {
+    await signInWithEmailAndPassword(auth, identities[label].email, AUTH_PASSWORD);
+  }
+  const firestore = getClientFirestore(app);
+  connectFirestoreEmulator(firestore, firestoreHostname, Number(firestorePort));
+
+  try {
+    return await action(firestore);
   } finally {
     await deleteApp(app);
   }
@@ -329,6 +357,7 @@ test('SeatHold emulator lifecycle A-L', async (t) => {
     assert.equal(current.league.activeHoldCount, 0);
     assert.equal(current.lock.exists, false);
     assert.equal(current.registration.status, 'pending_payment');
+    assert.equal(current.roster.length, 0);
 
     await releaseProvisioningHold(
       current.holds[0].paymentId,
@@ -353,6 +382,7 @@ test('SeatHold emulator lifecycle A-L', async (t) => {
     assert.equal(current.league.activeHoldCount, 1);
     assert.equal(current.registration.registrationOrder, null);
     assert.equal(current.lock.data().paymentId, result.paymentId);
+    assert.equal(current.roster.length, 0);
   });
 
   await t.test('E. successful payment conversion', async () => {
@@ -374,6 +404,13 @@ test('SeatHold emulator lifecycle A-L', async (t) => {
     assert.equal(current.payments.find(({ id }) => id === result.paymentId).status, 'succeeded');
     assert.equal(current.holds[0].status, 'converted');
     assert.equal(current.lock.exists, false);
+    assert.equal(current.roster.length, 1);
+    assert.deepEqual(
+      Object.fromEntries(Object.entries(current.roster[0]).filter(([key]) => key !== 'id')),
+      { displayName: 'Player a', registrationOrder: 1 },
+    );
+    assert.equal(current.roster[0].id.includes(identities.a.uid), false);
+    assert.equal(current.roster[0].id.includes(registrationId('a')), false);
   });
 
   await t.test('F. duplicate completed webhook', async () => {
@@ -394,6 +431,11 @@ test('SeatHold emulator lifecycle A-L', async (t) => {
       [current.league.activeHoldCount, current.league.confirmedCount, current.league.lastAssignedRegistrationOrder],
       [0, 1, 1],
     );
+    assert.deepEqual(current.roster, [{
+      id: getPublicRosterEntryId(LEAGUE_1_ID, registrationId('a')),
+      displayName: 'Player a',
+      registrationOrder: 1,
+    }]);
   });
 
   await t.test('G. checkout expiration', async () => {
@@ -408,6 +450,7 @@ test('SeatHold emulator lifecycle A-L', async (t) => {
     const current = await state('a');
     assert.equal(current.holds[0].status, 'expired');
     assert.equal(current.league.activeHoldCount, 0);
+    assert.equal(current.roster.length, 0);
     assert.equal(current.payments[0].status, 'expired');
     assert.equal(current.registration.status, 'pending_payment');
     assert.equal(current.lock.exists, false);
@@ -528,5 +571,164 @@ test('SeatHold emulator lifecycle A-L', async (t) => {
       [league2.data().confirmedCount, league2.data().activeHoldCount, league2.data().lastAssignedRegistrationOrder],
       [6, 0, 6],
     );
+    const [roster1, roster2] = await Promise.all([
+      db.collection('leagues').doc(LEAGUE_1_ID).collection('publicRoster').get(),
+      db.collection('leagues').doc(LEAGUE_2_ID).collection('publicRoster').get(),
+    ]);
+    assert.equal(roster1.size, 1);
+    assert.equal(roster2.size, 1);
+    assert.equal(roster1.docs[0].data().registrationOrder, 3);
+    assert.equal(roster2.docs[0].data().registrationOrder, 6);
+  });
+});
+
+test('Public roster projection and rules PR1-PR22', async (t) => {
+  await t.test('opaque IDs are deterministic and League-scoped', () => {
+    const first = getPublicRosterEntryId(LEAGUE_1_ID, registrationId('a'));
+    assert.equal(first, getPublicRosterEntryId(LEAGUE_1_ID, registrationId('a')));
+    assert.notEqual(first, getPublicRosterEntryId(LEAGUE_2_ID, registrationId('a')));
+    assert.equal(first.includes(identities.a.uid), false);
+    assert.equal(first.includes(registrationId('a')), false);
+  });
+
+  await t.test('duplicate success preserves the original snapshot', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const { payment } = await activate('a');
+    const paid = paidSession(stripe, payment.providerCheckoutSessionId);
+    await fulfillSuccessfulCheckout(stripeEvent('evt_roster_first', 'checkout.session.completed'), paid);
+    await db.collection('players').doc(identities.a.uid).update({ displayName: 'Changed Name' });
+    await fulfillSuccessfulCheckout(stripeEvent('evt_roster_distinct', 'checkout.session.completed'), paid);
+    assert.deepEqual((await state('a')).roster, [{
+      id: getPublicRosterEntryId(LEAGUE_1_ID, registrationId('a')),
+      displayName: 'Player a',
+      registrationOrder: 1,
+    }]);
+  });
+
+  for (const playerChange of ['deleted', 'invalid displayName']) {
+    await t.test(`terminal duplicate succeeds when Player is ${playerChange}`, async () => {
+      await seedFixture({ registrations: [{ label: 'a' }] });
+      const stripe = new FakeStripe();
+      setStripeForEmulatorTests(stripe);
+      const { payment } = await activate('a');
+      const paid = paidSession(stripe, payment.providerCheckoutSessionId);
+      await fulfillSuccessfulCheckout(stripeEvent('evt_roster_terminal_first', 'checkout.session.completed'), paid);
+      const before = await state('a');
+
+      if (playerChange === 'deleted') {
+        await db.collection('players').doc(identities.a.uid).delete();
+      } else {
+        await db.collection('players').doc(identities.a.uid).update({ displayName: 'x' });
+      }
+
+      await fulfillSuccessfulCheckout(
+        stripeEvent(`evt_roster_terminal_${playerChange.replaceAll(' ', '_')}`, 'checkout.session.completed'),
+        paid,
+      );
+      const after = await state('a');
+      const eventSnapshot = await db.collection('stripeWebhookEvents')
+        .doc(`evt_roster_terminal_${playerChange.replaceAll(' ', '_')}`).get();
+
+      assert.equal(eventSnapshot.exists, true);
+      assert.deepEqual(after.roster, before.roster);
+      assert.deepEqual(after.registration, before.registration);
+      assert.deepEqual(after.payments, before.payments);
+      assert.deepEqual(after.holds, before.holds);
+      assert.deepEqual(after.league, before.league);
+    });
+  }
+
+  await t.test('confirmed success retry repairs only a missing projection', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    await db.collection('players').doc(identities.a.uid).update({ displayName: 'Original Name' });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const { payment } = await activate('a');
+    const paid = paidSession(stripe, payment.providerCheckoutSessionId);
+    await fulfillSuccessfulCheckout(stripeEvent('evt_roster_repair_first', 'checkout.session.completed'), paid);
+    const before = await state('a');
+    await db.collection('leagues').doc(LEAGUE_1_ID).collection('publicRoster')
+      .doc(getPublicRosterEntryId(LEAGUE_1_ID, registrationId('a'))).delete();
+    await db.collection('players').doc(identities.a.uid).update({ displayName: 'Current Name' });
+    await fulfillSuccessfulCheckout(stripeEvent('evt_roster_repair_retry', 'checkout.session.completed'), paid);
+    const after = await state('a');
+    assert.deepEqual(after.league, before.league);
+    assert.deepEqual(after.registration, before.registration);
+    assert.deepEqual(after.payments, before.payments);
+    assert.deepEqual(after.holds, before.holds);
+    assert.deepEqual(after.roster, [{
+      id: getPublicRosterEntryId(LEAGUE_1_ID, registrationId('a')),
+      displayName: 'Current Name',
+      registrationOrder: 1,
+    }]);
+  });
+
+  await t.test('missing Player prevents atomic confirmation', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const { payment } = await activate('a');
+    await db.collection('players').doc(identities.a.uid).delete();
+    await assert.rejects(fulfillSuccessfulCheckout(
+      stripeEvent('evt_missing_player', 'checkout.session.completed'),
+      paidSession(stripe, payment.providerCheckoutSessionId),
+    ));
+    const current = await state('a');
+    assert.equal(current.registration.status, 'pending_payment');
+    assert.equal(current.league.activeHoldCount, 1);
+    assert.equal(current.holds[0].status, 'active');
+    assert.equal(current.roster.length, 0);
+  });
+
+  await t.test('invalid displayName prevents atomic confirmation', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const { payment } = await activate('a');
+    await db.collection('players').doc(identities.a.uid).update({ displayName: 'x' });
+    await assert.rejects(fulfillSuccessfulCheckout(
+      stripeEvent('evt_invalid_player', 'checkout.session.completed'),
+      paidSession(stripe, payment.providerCheckoutSessionId),
+    ));
+    const current = await state('a');
+    assert.equal(current.registration.status, 'pending_payment');
+    assert.equal(current.league.activeHoldCount, 1);
+    assert.equal(current.roster.length, 0);
+  });
+
+  await t.test('authenticated read is allowed and all client writes are denied', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const { payment } = await activate('a');
+    await fulfillSuccessfulCheckout(
+      stripeEvent('evt_roster_rules', 'checkout.session.completed'),
+      paidSession(stripe, payment.providerCheckoutSessionId),
+    );
+    const rosterId = getPublicRosterEntryId(LEAGUE_1_ID, registrationId('a'));
+
+    await withClient('b', async (firestore) => {
+      const roster = await getDocs(collection(firestore, 'leagues', LEAGUE_1_ID, 'publicRoster'));
+      assert.equal(roster.size, 1);
+      await assert.rejects(getDoc(doc(firestore, 'players', identities.a.uid)));
+      await assert.rejects(getDocs(collection(firestore, 'players')));
+      await assert.rejects(setDoc(
+        doc(firestore, 'leagues', LEAGUE_1_ID, 'publicRoster', 'client-created'),
+        { displayName: 'Client', registrationOrder: 2 },
+      ));
+      await assert.rejects(updateDoc(
+        doc(firestore, 'leagues', LEAGUE_1_ID, 'publicRoster', rosterId),
+        { displayName: 'Changed' },
+      ));
+      await assert.rejects(deleteDoc(
+        doc(firestore, 'leagues', LEAGUE_1_ID, 'publicRoster', rosterId),
+      ));
+    });
+
+    await withClient(null, async (firestore) => {
+      await assert.rejects(getDocs(collection(firestore, 'leagues', LEAGUE_1_ID, 'publicRoster')));
+    });
   });
 });
