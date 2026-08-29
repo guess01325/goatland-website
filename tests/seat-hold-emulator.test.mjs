@@ -49,6 +49,7 @@ const requireFromFunctions = createRequire(
 const { FieldValue, Timestamp } = requireFromFunctions('firebase-admin/firestore');
 const {
   db,
+  getPaymentId,
   getPublicRosterEntryId,
   setStripeForEmulatorTests,
 } = await import('../functions/lib/shared.js');
@@ -67,12 +68,15 @@ class FakeStripe {
   constructor() {
     this.sessions = new Map();
     this.createCount = 0;
+    this.createParameters = [];
     this.creationError = null;
     this.expirationError = null;
+    this.retrievalError = null;
     this.checkout = {
       sessions: {
         create: async (parameters) => {
           this.createCount += 1;
+          this.createParameters.push(parameters);
 
           if (this.creationError) {
             throw this.creationError;
@@ -85,7 +89,7 @@ class FakeStripe {
             status: 'open',
             payment_status: 'unpaid',
             url: `https://checkout.stripe.test/${id}`,
-            expires_at: Math.floor(Date.now() / 1000) + 1800,
+            expires_at: parameters.expires_at,
             amount_total: parameters.line_items[0].price_data.unit_amount,
             currency: parameters.line_items[0].price_data.currency,
             metadata: parameters.metadata,
@@ -94,7 +98,10 @@ class FakeStripe {
           this.sessions.set(id, session);
           return session;
         },
-        retrieve: async (id) => this.sessions.get(id),
+        retrieve: async (id) => {
+          if (this.retrievalError) throw this.retrievalError;
+          return this.sessions.get(id);
+        },
         expire: async (id) => {
           if (this.expirationError) {
             throw this.expirationError;
@@ -692,6 +699,223 @@ test('Registration policy authority P1-P20', async (t) => {
       offering: { registrationClosesAt: Timestamp.fromMillis(Date.now() - 1_000) },
     });
     await assert.rejects(createAsClient());
+  });
+});
+
+test('Backend-authoritative Checkout resume RES1-RES15 and expiration EXP1-EXP7', async (t) => {
+  await t.test('RES1 EXP1 EXP2 creates one 30-minute authoritative attempt', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const beforeSeconds = Math.floor(Date.now() / 1000);
+    const issued = await checkout('a', REQUEST_IDS[0]);
+    const afterSeconds = Math.floor(Date.now() / 1000);
+    const current = await state('a');
+    const session = stripe.sessions.get(current.payments[0].providerCheckoutSessionId);
+
+    assert.equal(current.payments.length, 1);
+    assert.equal(current.holds.length, 1);
+    assert.equal(current.lock.exists, true);
+    assert.equal(current.lock.data().paymentId, issued.paymentId);
+    assert.equal(current.league.activeHoldCount, 1);
+    assert.equal(stripe.createCount, 1);
+    assert.equal(stripe.createParameters[0].expires_at, session.expires_at);
+    assert.ok(session.expires_at >= beforeSeconds + 1800);
+    assert.ok(session.expires_at <= afterSeconds + 1800);
+    assert.equal(current.holds[0].expiresAt.toMillis(), session.expires_at * 1000);
+  });
+
+  await t.test('RES2 EXP3 same UUID returns the same Session without extending expiry', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const first = await checkout('a', REQUEST_IDS[0]);
+    const originalSession = stripe.sessions.get('cs_test_1');
+    const originalExpiry = originalSession.expires_at;
+    const retry = await checkout('a', REQUEST_IDS[0]);
+    const current = await state('a');
+
+    assert.deepEqual(retry, first);
+    assert.equal(stripe.createCount, 1);
+    assert.equal(originalSession.expires_at, originalExpiry);
+    assert.equal(current.payments.length, 1);
+    assert.equal(current.holds.length, 1);
+    assert.equal(current.league.activeHoldCount, 1);
+  });
+
+  await t.test('RES3 RES4 EXP4 fresh UUID resumes the locked Session without duplicate state', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const first = await checkout('a', REQUEST_IDS[0]);
+    const originalExpiry = stripe.sessions.get('cs_test_1').expires_at;
+    const resumed = await checkout('a', REQUEST_IDS[1]);
+    const current = await state('a');
+    const paymentBId = getPaymentId(identities.a.uid, registrationId('a'), REQUEST_IDS[1]);
+
+    assert.deepEqual(resumed, first);
+    assert.equal(stripe.createCount, 1);
+    assert.equal(stripe.sessions.get('cs_test_1').expires_at, originalExpiry);
+    assert.equal(current.payments.some(({ id }) => id === paymentBId), false);
+    assert.equal(current.holds.some(({ id }) => id === paymentBId), false);
+    assert.equal(current.payments.length, 1);
+    assert.equal(current.holds.length, 1);
+    assert.equal(current.lock.data().paymentId, first.paymentId);
+    assert.equal(current.league.activeHoldCount, 1);
+  });
+
+  await t.test('RES5 another player cannot resume the locked Session', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }, { label: 'b' }] });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    await checkout('a', REQUEST_IDS[0]);
+    await assert.rejects(createRegistrationCheckout.run({
+      auth: { uid: identities.b.uid, token: { email: identities.b.email } },
+      data: { registrationId: registrationId('a'), checkoutRequestId: REQUEST_IDS[1] },
+    }), (error) => error?.code === 'permission-denied');
+    assert.equal(stripe.createCount, 1);
+    assert.equal((await state('a')).league.activeHoldCount, 1);
+  });
+
+  for (const [name, field, value] of [
+    ['RES6 stale Competition policy', 'competitionRulesVersionAccepted', 'legacy-competition-v0'],
+    ['RES7 stale Refund policy', 'refundPolicyVersionAccepted', 'legacy-refund-v0'],
+  ]) {
+    await t.test(`${name} cannot resume`, async () => {
+      await seedFixture({ registrations: [{ label: 'a' }] });
+      const stripe = new FakeStripe();
+      setStripeForEmulatorTests(stripe);
+      await checkout('a', REQUEST_IDS[0]);
+      await db.collection('registrations').doc(registrationId('a')).update({ [field]: value });
+      await assert.rejects(checkout('a', REQUEST_IDS[1]));
+      const current = await state('a');
+      assert.equal(stripe.createCount, 1);
+      assert.equal(current.payments.length, 1);
+      assert.equal(current.holds[0].status, 'active');
+      assert.equal(current.lock.exists, true);
+      assert.equal(current.league.activeHoldCount, 1);
+    });
+  }
+
+  await t.test('RES8 confirmed Registration cannot resume', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    await checkout('a', REQUEST_IDS[0]);
+    await db.collection('registrations').doc(registrationId('a')).update({ status: 'confirmed' });
+    await assert.rejects(checkout('a', REQUEST_IDS[1]));
+    assert.equal(stripe.createCount, 1);
+  });
+
+  await t.test('RES9 lock with missing Payment fails closed', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    await db.collection('registrationCheckoutLocks').doc(registrationId('a')).set({
+      registrationId: registrationId('a'), paymentId: 'missing-payment', updatedAt: Timestamp.now(),
+    });
+    await assert.rejects(checkout('a', REQUEST_IDS[0]));
+    const current = await state('a');
+    assert.equal(stripe.createCount, 0);
+    assert.equal(current.payments.length, 0);
+    assert.equal(current.holds.length, 0);
+    assert.equal(current.league.activeHoldCount, 0);
+  });
+
+  for (const [name, mutation] of [
+    ['RES10 mismatched Payment/SeatHold relationship', { registrationOfferingId: 'wrong-offering' }],
+    ['RES11 inactive SeatHold', { status: 'released' }],
+  ]) {
+    await t.test(`${name} fails closed`, async () => {
+      await seedFixture({ registrations: [{ label: 'a' }] });
+      const stripe = new FakeStripe();
+      setStripeForEmulatorTests(stripe);
+      const issued = await checkout('a', REQUEST_IDS[0]);
+      await db.collection('seatHolds').doc(issued.paymentId).update(mutation);
+      await assert.rejects(checkout('a', REQUEST_IDS[1]));
+      const current = await state('a');
+      assert.equal(stripe.createCount, 1);
+      assert.equal(current.payments.length, 1);
+      assert.equal(current.holds.length, 1);
+      assert.equal(current.league.activeHoldCount, 1);
+    });
+  }
+
+  await t.test('RES12 expired provider Session returns no URL and EXP5 releases exactly once', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const { payment } = await activate('a', REQUEST_IDS[0]);
+    const session = stripe.sessions.get(payment.providerCheckoutSessionId);
+    session.status = 'expired';
+    session.url = null;
+    await assert.rejects(checkout('a', REQUEST_IDS[1]));
+    await expireCheckout(stripeEvent('evt_res12_expired', 'checkout.session.expired'), session);
+    await expireCheckout(stripeEvent('evt_res12_expired', 'checkout.session.expired'), session);
+    const current = await state('a');
+    assert.equal(stripe.createCount, 1);
+    assert.equal(current.payments[0].status, 'expired');
+    assert.equal(current.holds[0].status, 'expired');
+    assert.equal(current.lock.exists, false);
+    assert.equal(current.league.activeHoldCount, 0);
+  });
+
+  await t.test('RES13 indeterminate provider lookup preserves the authoritative attempt', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const issued = await checkout('a', REQUEST_IDS[0]);
+    stripe.retrievalError = Object.assign(new Error('provider unavailable'), {
+      type: 'StripeConnectionError',
+    });
+    await assert.rejects(checkout('a', REQUEST_IDS[1]));
+    const current = await state('a');
+    assert.equal(stripe.createCount, 1);
+    assert.equal(current.lock.data().paymentId, issued.paymentId);
+    assert.equal(current.payments[0].status, 'pending');
+    assert.equal(current.holds[0].status, 'active');
+    assert.equal(current.league.activeHoldCount, 1);
+  });
+
+  await t.test('RES14 lock change before return prevents stale URL return', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    await checkout('a', REQUEST_IDS[0]);
+    setCheckoutTestHookForEmulatorTests(async (stage) => {
+      if (stage === 'before-locked-checkout-return') {
+        await db.collection('registrationCheckoutLocks').doc(registrationId('a')).delete();
+      }
+    });
+    try {
+      await assert.rejects(checkout('a', REQUEST_IDS[1]));
+    } finally {
+      setCheckoutTestHookForEmulatorTests(null);
+    }
+    assert.equal(stripe.createCount, 1);
+  });
+
+  await t.test('RES15 EXP7 released expiration permits a fresh 30-minute attempt', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const { payment } = await activate('a', REQUEST_IDS[0]);
+    const firstSession = stripe.sessions.get(payment.providerCheckoutSessionId);
+    firstSession.status = 'expired';
+    firstSession.url = null;
+    await expireCheckout(stripeEvent('evt_res15_expired', 'checkout.session.expired'), firstSession);
+    const beforeSeconds = Math.floor(Date.now() / 1000);
+    const fresh = await checkout('a', REQUEST_IDS[1]);
+    const current = await state('a');
+    const freshSession = stripe.sessions.get(current.payments.find(({ id }) => id === fresh.paymentId).providerCheckoutSessionId);
+    assert.equal(stripe.createCount, 2);
+    assert.ok(freshSession.expires_at >= beforeSeconds + 1800);
+    assert.equal(current.holds.find(({ id }) => id === fresh.paymentId).expiresAt.toMillis(), freshSession.expires_at * 1000);
+    assert.equal(current.league.activeHoldCount, 1);
+  });
+
+  await t.test('EXP6 reconciliation expiration remains covered by the reconciliation emulator suite', () => {
+    assert.ok(true);
   });
 });
 

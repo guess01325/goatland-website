@@ -68,7 +68,10 @@ type Attribution = {
   promoterIdSnapshot: string;
 } | null;
 
-type CheckoutTestHookStage = 'before-provisioning-transaction' | 'before-activation-transaction';
+type CheckoutTestHookStage =
+  | 'before-provisioning-transaction'
+  | 'before-activation-transaction'
+  | 'before-locked-checkout-return';
 type CheckoutTestHook = (stage: CheckoutTestHookStage) => Promise<void>;
 
 let checkoutTestHook: CheckoutTestHook | null = null;
@@ -379,6 +382,122 @@ async function getExistingCheckoutUrl(
   return session.url;
 }
 
+async function getLockedCheckoutUrl(
+  checkoutLockRef: FirebaseFirestore.DocumentReference,
+  registrationRef: FirebaseFirestore.DocumentReference,
+  registrationId: string,
+  requestedPaymentId: string,
+  playerId: string,
+  offeringId: string,
+  leagueId: string,
+): Promise<{ paymentId: string; checkoutUrl: string } | null> {
+  const checkoutLockSnapshot = await checkoutLockRef.get();
+  if (!checkoutLockSnapshot.exists) return null;
+
+  const lock = checkoutLockSnapshot.data();
+  const lockedPaymentId = lock?.paymentId;
+  if (
+    lock?.registrationId !== registrationId
+    || typeof lockedPaymentId !== 'string'
+    || lockedPaymentId.length === 0
+  ) {
+    throw new HttpsError('failed-precondition', 'Checkout lock relationship is inconsistent.');
+  }
+
+  const paymentRef = db.collection(collections.payments).doc(lockedPaymentId);
+  const seatHoldRef = db.collection(collections.seatHolds).doc(lockedPaymentId);
+  const [paymentSnapshot, seatHoldSnapshot] = await Promise.all([
+    paymentRef.get(),
+    seatHoldRef.get(),
+  ]);
+  const payment = paymentSnapshot.data();
+  const seatHold = seatHoldSnapshot.data() as SeatHoldData | undefined;
+
+  if (!paymentSnapshot.exists) {
+    if (
+      lockedPaymentId === requestedPaymentId
+      && seatHoldSnapshot.exists
+      && seatHold?.paymentId === lockedPaymentId
+      && seatHold.registrationId === registrationId
+      && seatHold.registrationOfferingId === offeringId
+      && seatHold.leagueId === leagueId
+      && seatHold.status === 'provisioning'
+    ) {
+      return null;
+    }
+    throw new HttpsError('failed-precondition', 'Locked Checkout Payment was not found.');
+  }
+
+  if (
+    !seatHoldSnapshot.exists
+    || payment?.registrationId !== registrationId
+    || payment.provider !== 'stripe'
+    || payment.status !== 'pending'
+    || typeof payment.providerCheckoutSessionId !== 'string'
+    || seatHold?.paymentId !== lockedPaymentId
+    || seatHold.registrationId !== registrationId
+    || seatHold.registrationOfferingId !== offeringId
+    || seatHold.leagueId !== leagueId
+    || seatHold.status !== 'active'
+    || seatHold.providerCheckoutSessionId !== payment.providerCheckoutSessionId
+  ) {
+    throw new HttpsError('failed-precondition', 'Locked Checkout relationship is inconsistent.');
+  }
+
+  const session = await getStripe().checkout.sessions.retrieve(payment.providerCheckoutSessionId);
+  if (session.status !== 'open' || !session.url) {
+    throw new HttpsError('failed-precondition', 'The existing Checkout Session is no longer open.');
+  }
+
+  await runCheckoutTestHook('before-locked-checkout-return');
+  await db.runTransaction(async (transaction) => {
+    const [currentRegistrationSnapshot, currentLockSnapshot, currentPaymentSnapshot,
+      currentSeatHoldSnapshot] = await Promise.all([
+      transaction.get(registrationRef),
+      transaction.get(checkoutLockRef),
+      transaction.get(paymentRef),
+      transaction.get(seatHoldRef),
+    ]);
+
+    if (
+      !currentRegistrationSnapshot.exists
+      || !currentLockSnapshot.exists
+      || !currentPaymentSnapshot.exists
+      || !currentSeatHoldSnapshot.exists
+    ) {
+      throw new HttpsError('failed-precondition', 'Locked Checkout changed before resume.');
+    }
+
+    const currentRegistration = currentRegistrationSnapshot.data() as RegistrationData;
+    const currentOfferingId = validateRegistrationOwner(currentRegistration, playerId);
+    validateRegistrationPolicies(currentRegistration);
+    const currentLock = currentLockSnapshot.data();
+    const currentPayment = currentPaymentSnapshot.data() as Record<string, unknown>;
+    const currentSeatHold = currentSeatHoldSnapshot.data() as SeatHoldData;
+
+    if (
+      currentOfferingId !== offeringId
+      || requireString(currentRegistration.leagueId, 'Registration league') !== leagueId
+      || currentLock?.registrationId !== registrationId
+      || currentLock.paymentId !== lockedPaymentId
+      || currentPayment.registrationId !== registrationId
+      || currentPayment.provider !== 'stripe'
+      || currentPayment.status !== 'pending'
+      || currentPayment.providerCheckoutSessionId !== session.id
+      || currentSeatHold.paymentId !== lockedPaymentId
+      || currentSeatHold.registrationId !== registrationId
+      || currentSeatHold.registrationOfferingId !== offeringId
+      || currentSeatHold.leagueId !== leagueId
+      || currentSeatHold.status !== 'active'
+      || currentSeatHold.providerCheckoutSessionId !== session.id
+    ) {
+      throw new HttpsError('failed-precondition', 'Locked Checkout changed before resume.');
+    }
+  });
+
+  return { paymentId: lockedPaymentId, checkoutUrl: session.url };
+}
+
 async function expireSessionQuietly(session: Stripe.Checkout.Session): Promise<boolean> {
   if (session.status === 'expired') {
     return true;
@@ -501,6 +620,19 @@ export const createRegistrationCheckout = onCall(
     const registration = registrationSnapshot.data() as RegistrationData;
     const offeringId = validateRegistrationOwner(registration, playerId);
     validateRegistrationPolicies(registration);
+    const leagueId = requireString(registration.leagueId, 'Registration league');
+
+    const lockedCheckout = await getLockedCheckoutUrl(
+      checkoutLockRef,
+      registrationRef,
+      registrationId,
+      paymentId,
+      playerId,
+      offeringId,
+      leagueId,
+    );
+
+    if (lockedCheckout) return lockedCheckout;
 
     const existingUrl = await getExistingCheckoutUrl(paymentId, registrationId);
 
@@ -509,7 +641,6 @@ export const createRegistrationCheckout = onCall(
     }
 
     let acquisition = validateAcquisitionAttribution(registration);
-    const leagueId = requireString(registration.leagueId, 'Registration league');
     const offeringRef = db.collection(collections.registrationOfferings).doc(offeringId);
     const leagueRef = db.collection(collections.leagues).doc(leagueId);
     const [offeringSnapshot, leagueSnapshot, seatHoldSnapshot] = await Promise.all([
@@ -677,6 +808,7 @@ export const createRegistrationCheckout = onCall(
           client_reference_id: registrationId,
           success_url: successUrl,
           cancel_url: cancelUrl,
+          expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
           line_items: [{
             quantity: 1,
             price_data: {
