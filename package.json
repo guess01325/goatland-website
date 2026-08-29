@@ -12,6 +12,7 @@
     "seed:tiers:dev": "node scripts/seed-tiers-dev.mjs",
     "test:reconciliation:emulator": "firebase emulators:exec --project goatland-development --only firestore \"npm run build --prefix functions && node --test tests/reconciliation-emulator.test.mjs\"",
     "test:seat-holds:emulator": "firebase emulators:exec --project goatland-development --only auth,firestore \"npm run build --prefix functions && node --test tests/seat-hold-emulator.test.mjs\"",
+    "test:policy-versions": "node --test tests/policy-version-sync.test.mjs",
     "typecheck": "tsc -b"
   },
   "dependencies": {

@@ -36,13 +36,10 @@ const leagueTiers: LeagueTier[] = [
     id: 'standard-tier-2',
     name: 'Tier 2',
     supportedGames: ['Madden', 'College Football', 'NBA 2K', 'Call of Duty'],
-    entryFee: '$250',
-    championPrize: '$1,500',
+    entryFee: 'Shown during registration',
+    championPrize: 'Published with applicable League terms',
     playoffPayouts: [
-      { position: '1st', payout: '$200' },
-      { position: '2nd-3rd', payout: '$100 each' },
-      { position: '4th-5th', payout: '$50 each' },
-      { position: '6th-8th', payout: '$20 each' },
+      { position: '1st-8th', payout: 'Published with applicable League terms' },
     ],
   },
   {
@@ -50,7 +47,7 @@ const leagueTiers: LeagueTier[] = [
     name: 'Tier 3',
     supportedGames: ['Madden', 'College Football', 'NBA 2K', 'Call of Duty'],
     entryFee: '$500',
-    championPrize: '$4,500',
+    championPrize: 'Published with applicable League terms',
     playoffPayouts: [
       { position: '1st', payout: '$400' },
       { position: '2nd-3rd', payout: '$200 each' },

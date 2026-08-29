@@ -2652,6 +2652,42 @@ p {
   border-top: 1px solid rgba(255, 255, 255, 0.09);
 }
 
+.registration-policies {
+  display: grid;
+  gap: var(--space-5);
+  padding-block: var(--space-6);
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.registration-policies h2,
+.registration-policies p {
+  margin: 0;
+}
+
+.registration-policies__checks {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.registration-policies__checks label {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.registration-policies__checks input {
+  width: 1.2rem;
+  height: 1.2rem;
+  margin-top: 0.15rem;
+  accent-color: var(--color-gold);
+}
+
+.registration-policies__checks a {
+  color: var(--color-gold);
+}
+
 .registration-details h2,
 .registration-details p {
   margin: 0;

@@ -4,6 +4,8 @@ import type Stripe from 'stripe';
 import {
   checkoutCancelUrl,
   checkoutSuccessUrl,
+  CURRENT_COMPETITION_RULES_VERSION,
+  CURRENT_REFUND_POLICY_VERSION,
   stripeSecretKey,
 } from './config.js';
 import {
@@ -33,6 +35,10 @@ type RegistrationData = {
   promoterIdSnapshot?: unknown;
   acquisitionSource?: unknown;
   acquisitionSourceOther?: unknown;
+  competitionRulesVersionAccepted?: unknown;
+  competitionRulesAcceptedAt?: unknown;
+  refundPolicyVersionAccepted?: unknown;
+  refundPolicyAcceptedAt?: unknown;
 };
 
 type OfferingData = {
@@ -61,6 +67,25 @@ type Attribution = {
   promoCodeSnapshot: string;
   promoterIdSnapshot: string;
 } | null;
+
+type CheckoutTestHookStage = 'before-provisioning-transaction' | 'before-activation-transaction';
+type CheckoutTestHook = (stage: CheckoutTestHookStage) => Promise<void>;
+
+let checkoutTestHook: CheckoutTestHook | null = null;
+
+export function setCheckoutTestHookForEmulatorTests(hook: CheckoutTestHook | null): void {
+  if (!process.env.FIRESTORE_EMULATOR_HOST) {
+    throw new Error('Checkout test hooks are only available with the Firestore emulator.');
+  }
+
+  checkoutTestHook = hook;
+}
+
+async function runCheckoutTestHook(stage: CheckoutTestHookStage): Promise<void> {
+  if (process.env.FIRESTORE_EMULATOR_HOST && checkoutTestHook) {
+    await checkoutTestHook(stage);
+  }
+}
 
 const ACQUISITION_SOURCES = new Set([
   'facebook',
@@ -155,6 +180,20 @@ function validateRegistrationOwner(
   }
 
   return requireString(registration.registrationOfferingId, 'Registration offering');
+}
+
+function validateRegistrationPolicies(registration: RegistrationData): void {
+  if (
+    registration.competitionRulesVersionAccepted !== CURRENT_COMPETITION_RULES_VERSION
+    || registration.refundPolicyVersionAccepted !== CURRENT_REFUND_POLICY_VERSION
+    || !(registration.competitionRulesAcceptedAt instanceof Timestamp)
+    || !(registration.refundPolicyAcceptedAt instanceof Timestamp)
+  ) {
+    throw new HttpsError(
+      'failed-precondition',
+      'Registration policy acceptance is no longer current.',
+    );
+  }
 }
 
 function validateOffering(offering: OfferingData, now: Timestamp): { amountCents: number; currency: 'USD' } {
@@ -432,15 +471,9 @@ export const createRegistrationCheckout = onCall(
       throw new HttpsError('invalid-argument', 'Checkout request identifiers are invalid.');
     }
 
-    const paymentId = getPaymentId(playerId, registrationId, checkoutRequestId);
-    const existingUrl = await getExistingCheckoutUrl(paymentId, registrationId);
-
-    if (existingUrl) {
-      return { paymentId, checkoutUrl: existingUrl };
-    }
-
     const playerRef = db.collection(collections.players).doc(playerId);
     const registrationRef = db.collection(collections.registrations).doc(registrationId);
+    const paymentId = getPaymentId(playerId, registrationId, checkoutRequestId);
     const paymentRef = db.collection(collections.payments).doc(paymentId);
     const seatHoldRef = db.collection(collections.seatHolds).doc(paymentId);
     const checkoutLockRef = db
@@ -467,6 +500,14 @@ export const createRegistrationCheckout = onCall(
 
     const registration = registrationSnapshot.data() as RegistrationData;
     const offeringId = validateRegistrationOwner(registration, playerId);
+    validateRegistrationPolicies(registration);
+
+    const existingUrl = await getExistingCheckoutUrl(paymentId, registrationId);
+
+    if (existingUrl) {
+      return { paymentId, checkoutUrl: existingUrl };
+    }
+
     let acquisition = validateAcquisitionAttribution(registration);
     const leagueId = requireString(registration.leagueId, 'Registration league');
     const offeringRef = db.collection(collections.registrationOfferings).doc(offeringId);
@@ -494,6 +535,7 @@ export const createRegistrationCheckout = onCall(
     const successUrl = requireConfiguredUrl(checkoutSuccessUrl.value(), 'CHECKOUT_SUCCESS_URL');
     const cancelUrl = requireConfiguredUrl(checkoutCancelUrl.value(), 'CHECKOUT_CANCEL_URL');
 
+    await runCheckoutTestHook('before-provisioning-transaction');
     await db.runTransaction(async (transaction) => {
       const currentPlayerSnapshot = await transaction.get(playerRef);
       const currentRegistrationSnapshot = await transaction.get(registrationRef);
@@ -526,6 +568,7 @@ export const createRegistrationCheckout = onCall(
 
       const currentRegistration = currentRegistrationSnapshot.data() as RegistrationData;
       const currentOfferingId = validateRegistrationOwner(currentRegistration, playerId);
+      validateRegistrationPolicies(currentRegistration);
       acquisition = validateAcquisitionAttribution(currentRegistration);
 
       if (
@@ -678,6 +721,7 @@ export const createRegistrationCheckout = onCall(
     }
 
     try {
+      await runCheckoutTestHook('before-activation-transaction');
       await db.runTransaction(async (transaction) => {
         const currentPlayerSnapshot = await transaction.get(playerRef);
         const currentRegistrationSnapshot = await transaction.get(registrationRef);
@@ -710,6 +754,7 @@ export const createRegistrationCheckout = onCall(
 
         const currentRegistration = currentRegistrationSnapshot.data() as RegistrationData;
         const currentOfferingId = validateRegistrationOwner(currentRegistration, playerId);
+        validateRegistrationPolicies(currentRegistration);
         const currentAcquisition = validateAcquisitionAttribution(currentRegistration);
         const currentSeatHold = currentSeatHoldSnapshot.data() as SeatHoldData;
 

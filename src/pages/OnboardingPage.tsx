@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { CURRENT_RULES_VERSION } from '../config/rules';
 
@@ -120,7 +120,7 @@ export function OnboardingPage() {
                 required
                 disabled={submitting || Boolean(playerError)}
               />
-              <span>I accept the <Link to="/rules" target="_blank">GOATLAND rules</Link> (version {CURRENT_RULES_VERSION}).</span>
+              <span>I accept the GOATLAND account rules (version {CURRENT_RULES_VERSION}).</span>
             </label>
 
             {error ? <p className="auth-message auth-message--error" role="alert">{error}</p> : null}

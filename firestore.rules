@@ -222,6 +222,10 @@ service cloud.firestore {
           request.resource.data.registrationOfferingId
         )
         && request.resource.data.status == 'pending_payment'
+        && request.resource.data.competitionRulesVersionAccepted
+          == 'competition-rules-2026-08-29-v1'
+        && request.resource.data.refundPolicyVersionAccepted
+          == 'refund-policy-2026-08-29-v1'
         && request.resource.data.promoCodeId == null
         && request.resource.data.promoCodeSnapshot == null
         && request.resource.data.promoterIdSnapshot == null

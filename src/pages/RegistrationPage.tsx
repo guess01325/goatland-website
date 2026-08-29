@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { LeagueRoster } from '../components/registration/LeagueRoster';
 import { RegistrationDetails } from '../components/registration/RegistrationDetails';
+import { RegistrationPolicies } from '../components/registration/RegistrationPolicies';
 import { SelectionCard } from '../components/registration/SelectionCard';
 import { PageHeader } from '../components/PageHeader';
 import { SectionHeading } from '../components/SectionHeading';
@@ -9,15 +10,21 @@ import type { Game } from '../models/Game';
 import type { League } from '../models/League';
 import type { LeagueStart } from '../models/LeagueStart';
 import type { PublicRosterEntry } from '../models/PublicRosterEntry';
+import { isValidPromoCode, normalizePromoCode } from '../models/PromoCode';
 import type { AcquisitionAttribution, AcquisitionSource, Registration } from '../models/Registration';
 import { normalizeAcquisitionAttribution } from '../models/Registration';
 import type { RegistrationOffering } from '../models/RegistrationOffering';
 import type { Tier } from '../models/Tier';
+import {
+  CURRENT_COMPETITION_RULES_VERSION,
+  CURRENT_REFUND_POLICY_VERSION,
+} from '../data/registrationPolicies';
 import { getRegistrationGames } from '../services/games';
 import { getLeagueStartsForGame } from '../services/leagueStarts';
 import { getLeaguesByRegistrationOffering, getPublicRoster } from '../services/leagues';
 import { getRegistrationOfferingsForLeagueStartAndTier } from '../services/registrationOfferings';
 import {
+  createRegistration,
   getRegistration,
   updateRegistrationAcquisitionSource,
   updateRegistrationLeague,
@@ -97,6 +104,11 @@ export function RegistrationPage() {
   const [acquisitionSaveError, setAcquisitionSaveError] = useState('');
   const [acquisitionReloadPending, setAcquisitionReloadPending] = useState(false);
   const [promoCode, setPromoCode] = useState('');
+  const [competitionRulesAccepted, setCompetitionRulesAccepted] = useState(false);
+  const [refundPolicyAccepted, setRefundPolicyAccepted] = useState(false);
+  const [registrationCreating, setRegistrationCreating] = useState(false);
+  const [registrationCreateError, setRegistrationCreateError] = useState('');
+  const [registrationCreateNotice, setRegistrationCreateNotice] = useState('');
   const [roster, setRoster] = useState<PublicRosterEntry[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
   const [rosterError, setRosterError] = useState('');
@@ -104,6 +116,7 @@ export function RegistrationPage() {
   const currentOfferingId = useRef<string | null>(null);
   const registrationLoadOfferingId = useRef<string | null>(null);
   const initializedRegistrationId = useRef<string | null>(null);
+  const startsLoadContext = useRef('');
 
   const gameId = searchParams.get('game');
   const tierId = searchParams.get('tier');
@@ -139,6 +152,23 @@ export function RegistrationPage() {
   const detailsAvailable = Boolean(
     displayedLeague && (!managedRegistration || managedRegistration.status === 'pending_payment'),
   );
+  let normalizedLocalAcquisition: AcquisitionAttribution | null = null;
+  try {
+    normalizedLocalAcquisition = normalizeAcquisitionAttribution({
+      acquisitionSource,
+      acquisitionSourceOther: acquisitionSource === 'other' ? acquisitionSourceOther : null,
+    });
+  } catch {
+    normalizedLocalAcquisition = null;
+  }
+  const normalizedLocalPromo = normalizePromoCode(promoCode);
+  const localPromoValid = !normalizedLocalPromo || isValidPromoCode(normalizedLocalPromo);
+  const policiesAvailable = Boolean(
+    displayedLeague
+    && !managedRegistration
+    && normalizedLocalAcquisition
+    && localPromoValid,
+  );
 
   useEffect(() => {
     const nextOfferingId = selectedStart?.offering.id ?? null;
@@ -152,6 +182,11 @@ export function RegistrationPage() {
     setAcquisitionSaveError('');
     setAcquisitionReloadPending(false);
     setPromoCode('');
+    setCompetitionRulesAccepted(false);
+    setRefundPolicyAccepted(false);
+    setRegistrationCreating(false);
+    setRegistrationCreateError('');
+    setRegistrationCreateNotice('');
     initializedRegistrationId.current = null;
   }, [detailsOfferingId, selectedStart]);
 
@@ -226,9 +261,16 @@ export function RegistrationPage() {
 
   useEffect(() => {
     let current = true;
-    setStartOptions([]);
     setStartsError('');
     setStartsLoadedFor('');
+
+    const nextLoadContext = selectedGame && selectedTier
+      ? `${selectedGame.id}|${selectedTier.id}`
+      : '';
+    if (startsLoadContext.current !== nextLoadContext) {
+      startsLoadContext.current = nextLoadContext;
+      setStartOptions([]);
+    }
 
     if (!selectedGame || !selectedTier) {
       setStartsLoading(false);
@@ -503,6 +545,59 @@ export function RegistrationPage() {
     selectedStart,
   ]);
 
+  const createPendingRegistration = useCallback(async () => {
+    if (
+      !selectedStart
+      || !selectedBrowsableLeague
+      || selectedBrowsableLeague.status !== 'open'
+      || !registrationIsLoaded
+      || managedRegistration
+      || !normalizedLocalAcquisition
+      || !localPromoValid
+      || !competitionRulesAccepted
+      || !refundPolicyAccepted
+      || registrationCreating
+    ) return;
+
+    const offeringAtRequest = selectedStart.offering.id;
+    setRegistrationCreating(true);
+    setRegistrationCreateError('');
+    setRegistrationCreateNotice('');
+    try {
+      await createRegistration({
+        registrationOfferingId: offeringAtRequest,
+        leagueId: selectedBrowsableLeague.id,
+        competitionRulesVersionAccepted: CURRENT_COMPETITION_RULES_VERSION,
+        refundPolicyVersionAccepted: CURRENT_REFUND_POLICY_VERSION,
+        ...normalizedLocalAcquisition,
+      });
+      if (currentOfferingId.current !== offeringAtRequest) return;
+      setRegistrationCreateNotice('Registration created.');
+      setAcquisitionReloadPending(true);
+      refreshRegistrationState();
+    } catch {
+      if (currentOfferingId.current !== offeringAtRequest) return;
+      setRegistrationCreateError(
+        'Your registration could not be created. Availability or registration details may have changed. Refreshing your registration status.',
+      );
+      refreshRegistrationState();
+      setStartsRetry((value) => value + 1);
+    } finally {
+      if (currentOfferingId.current === offeringAtRequest) setRegistrationCreating(false);
+    }
+  }, [
+    competitionRulesAccepted,
+    localPromoValid,
+    managedRegistration,
+    normalizedLocalAcquisition,
+    refreshRegistrationState,
+    refundPolicyAccepted,
+    registrationCreating,
+    registrationIsLoaded,
+    selectedBrowsableLeague,
+    selectedStart,
+  ]);
+
   const switchLeague = useCallback(async (league: League) => {
     if (
       !selectedStart
@@ -537,7 +632,7 @@ export function RegistrationPage() {
     selectedStart,
   ]);
 
-  const currentStep = detailsAvailable ? 5 : selectedStart ? 4 : selectedTier ? 3 : selectedGame ? 2 : 1;
+  const currentStep = policiesAvailable ? 6 : detailsAvailable ? 5 : selectedStart ? 4 : selectedTier ? 3 : selectedGame ? 2 : 1;
   const activeGames = useMemo(() => games.filter(({ status }) => status === 'active'), [games]);
   const comingSoonGames = useMemo(
     () => games.filter(({ status }) => status === 'coming_soon'),
@@ -555,7 +650,7 @@ export function RegistrationPage() {
       <section className="section registration-browser-section">
         <div className="container">
           <ol className="registration-steps" aria-label="Registration browsing progress">
-            {['Game', 'Tier', 'Start Date', 'League', 'Details'].map((label, index) => (
+            {['Game', 'Tier', 'Start Date', 'League', 'Details', 'Policies'].map((label, index) => (
               <li
                 className={`${index + 1 === currentStep ? 'registration-steps__current ' : ''}${index + 1 < currentStep ? 'registration-steps__complete' : ''}`}
                 key={label}
@@ -725,6 +820,7 @@ export function RegistrationPage() {
                               || !registrationIsLoaded
                               || leagueSwitching
                               || acquisitionSaving
+                              || registrationCreating
                               || managedRegistration?.status === 'confirmed'
                               || managedRegistration?.status === 'cancelled'
                               || managedRegistration?.status === 'expired'
@@ -778,8 +874,8 @@ export function RegistrationPage() {
                     promoLocked={promoLocked}
                     persisted={managedRegistration?.status === 'pending_payment'}
                     dirty={acquisitionDirty}
-                    saving={acquisitionSaving}
-                    mutationBlocked={leagueSwitching || registrationLoading}
+                    saving={acquisitionSaving || registrationCreating}
+                    mutationBlocked={leagueSwitching || registrationLoading || registrationCreating}
                     saveError={acquisitionSaveError}
                     onAcquisitionSourceChange={(source) => {
                       setAcquisitionSource(source);
@@ -796,6 +892,29 @@ export function RegistrationPage() {
                     onSave={() => void saveAcquisition()}
                   />
                 ) : null}
+              {selectedStart
+                && policiesAvailable
+                && detailsOfferingId === selectedStart.offering.id
+                ? (
+                  <RegistrationPolicies
+                    competitionAccepted={competitionRulesAccepted}
+                    refundAccepted={refundPolicyAccepted}
+                    creating={registrationCreating}
+                    createError={registrationCreateError}
+                    onCompetitionAcceptedChange={(accepted) => {
+                      setCompetitionRulesAccepted(accepted);
+                      setRegistrationCreateError('');
+                    }}
+                    onRefundAcceptedChange={(accepted) => {
+                      setRefundPolicyAccepted(accepted);
+                      setRegistrationCreateError('');
+                    }}
+                    onCreate={() => void createPendingRegistration()}
+                  />
+                ) : null}
+              {registrationCreateNotice && managedRegistration?.status === 'pending_payment' ? (
+                <p className="registration-details__status" role="status">{registrationCreateNotice}</p>
+              ) : null}
             </>
           ) : null}
 
@@ -889,6 +1008,12 @@ function RegistrationState({ registration, league, game, tier, start }: Registra
       {!league ? <p>Reload the page or contact GOATLAND for help.</p> : null}
       {!confirmed && league && league.status !== 'open' ? (
         <p>This League is no longer available for a new checkout. Choose another open League to change your selection.</p>
+      ) : null}
+      {!confirmed && (
+        registration.competitionRulesVersionAccepted !== CURRENT_COMPETITION_RULES_VERSION
+        || registration.refundPolicyVersionAccepted !== CURRENT_REFUND_POLICY_VERSION
+      ) ? (
+        <p>This pending Registration requires updated policy acceptance before future payment can continue.</p>
       ) : null}
       {confirmed ? <p>Your League selection is confirmed and cannot be changed.</p> : null}
     </div>

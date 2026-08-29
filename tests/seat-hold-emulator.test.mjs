@@ -55,6 +55,7 @@ const {
 const {
   createRegistrationCheckout,
   releaseProvisioningHold,
+  setCheckoutTestHookForEmulatorTests,
 } = await import('../functions/lib/checkout.js');
 const {
   expireCheckout,
@@ -67,6 +68,7 @@ class FakeStripe {
     this.sessions = new Map();
     this.createCount = 0;
     this.creationError = null;
+    this.expirationError = null;
     this.checkout = {
       sessions: {
         create: async (parameters) => {
@@ -94,6 +96,9 @@ class FakeStripe {
         },
         retrieve: async (id) => this.sessions.get(id),
         expire: async (id) => {
+          if (this.expirationError) {
+            throw this.expirationError;
+          }
           const session = this.sessions.get(id);
           session.status = 'expired';
           session.url = null;
@@ -200,9 +205,9 @@ async function seedFixture({ league1 = {}, league2 = {}, registrations = [] } = 
       registrationOfferingId: OFFERING_ID,
       leagueId,
       status: 'pending_payment',
-      competitionRulesVersionAccepted: 'test-competition-v1',
+      competitionRulesVersionAccepted: 'competition-rules-2026-08-29-v1',
       competitionRulesAcceptedAt: now,
-      refundPolicyVersionAccepted: 'test-refund-v1',
+      refundPolicyVersionAccepted: 'refund-policy-2026-08-29-v1',
       refundPolicyAcceptedAt: now,
       acquisitionSource,
       acquisitionSourceOther,
@@ -310,16 +315,16 @@ async function withClient(label, action) {
 function clientRegistrationData(label, acquisition = {
   acquisitionSource: 'facebook',
   acquisitionSourceOther: null,
-}) {
+}, overrides = {}) {
   const timestamp = serverTimestamp();
   return {
     playerId: identities[label].uid,
     registrationOfferingId: OFFERING_ID,
     leagueId: LEAGUE_1_ID,
     status: 'pending_payment',
-    competitionRulesVersionAccepted: 'test-competition-v1',
+    competitionRulesVersionAccepted: 'competition-rules-2026-08-29-v1',
     competitionRulesAcceptedAt: timestamp,
-    refundPolicyVersionAccepted: 'test-refund-v1',
+    refundPolicyVersionAccepted: 'refund-policy-2026-08-29-v1',
     refundPolicyAcceptedAt: timestamp,
     ...acquisition,
     promoCodeId: null,
@@ -331,6 +336,7 @@ function clientRegistrationData(label, acquisition = {
     submittedAt: timestamp,
     confirmedAt: null,
     cancelledAt: null,
+    ...overrides,
   };
 }
 
@@ -377,6 +383,244 @@ async function seedOtherOfferingLeague(overrides = {}) {
 }
 
 await Promise.all(['a', 'b', 'c'].map(createIdentity));
+
+test('Registration policy authority P1-P20', async (t) => {
+  async function prepareClientCreation({ league1 = {}, offering = {} } = {}) {
+    await seedFixture({ league1, registrations: [{ label: 'a' }] });
+    await db.collection('registrations').doc(registrationId('a')).delete();
+    if (Object.keys(offering).length > 0) {
+      await db.collection('registrationOfferings').doc(OFFERING_ID).update(offering);
+    }
+  }
+
+  async function createAsClient(overrides = {}) {
+    return withClient('a', (firestore) => setDoc(
+      doc(firestore, 'registrations', registrationId('a')),
+      clientRegistrationData('a', undefined, overrides),
+    ));
+  }
+
+  await t.test('P1 exact current versions create a pending Registration', async () => {
+    await prepareClientCreation();
+    await createAsClient();
+    const current = await state('a');
+    assert.equal(current.registration.status, 'pending_payment');
+    assert.equal(current.registration.competitionRulesVersionAccepted, 'competition-rules-2026-08-29-v1');
+    assert.equal(current.registration.refundPolicyVersionAccepted, 'refund-policy-2026-08-29-v1');
+    assert.equal(current.roster.length, 0);
+    assert.deepEqual(
+      [current.registration.promoCodeId, current.registration.promoCodeSnapshot, current.registration.promoterIdSnapshot],
+      [null, null, null],
+    );
+  });
+
+  for (const [name, overrides] of [
+    ['P2 wrong Competition version', { competitionRulesVersionAccepted: 'wrong-competition' }],
+    ['P3 wrong Refund version', { refundPolicyVersionAccepted: 'wrong-refund' }],
+    ['P4 empty Competition version', { competitionRulesVersionAccepted: '' }],
+    ['P4 empty Refund version', { refundPolicyVersionAccepted: '' }],
+    ['P5 account version as Competition version', { competitionRulesVersionAccepted: '2026-08-21' }],
+  ]) {
+    await t.test(`${name} is rejected`, async () => {
+      await prepareClientCreation();
+      await assert.rejects(createAsClient(overrides));
+      assert.equal((await db.collection('registrations').doc(registrationId('a')).get()).exists, false);
+    });
+  }
+
+  await t.test('P6-P7 current pending League and acquisition updates still work', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    await updateLeagueAsClient('a', LEAGUE_2_ID);
+    await updateAcquisitionAsClient('a', {
+      acquisitionSource: 'other', acquisitionSourceOther: 'Community event',
+    });
+    const registration = (await state('a', LEAGUE_2_ID)).registration;
+    assert.equal(registration.leagueId, LEAGUE_2_ID);
+    assert.equal(registration.acquisitionSourceOther, 'Community event');
+  });
+
+  await t.test('P8-P9 legacy pending cancellation works without migration', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    await db.collection('registrations').doc(registrationId('a')).update({
+      competitionRulesVersionAccepted: 'legacy-competition-v0',
+      refundPolicyVersionAccepted: 'legacy-refund-v0',
+    });
+    await cancelAsClient('a');
+    const registration = (await state('a')).registration;
+    assert.equal(registration.status, 'cancelled');
+    assert.equal(registration.competitionRulesVersionAccepted, 'legacy-competition-v0');
+    assert.equal(registration.refundPolicyVersionAccepted, 'legacy-refund-v0');
+  });
+
+  await t.test('P10 checkout with current versions reaches trusted setup', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    await checkout('a');
+    const current = await state('a');
+    assert.equal(current.holds.length, 1);
+    assert.equal(current.payments.length, 1);
+    assert.equal(stripe.createCount, 1);
+  });
+
+  for (const [name, field, value] of [
+    ['P11 stale Competition version', 'competitionRulesVersionAccepted', 'legacy-competition-v0'],
+    ['P12 stale Refund version', 'refundPolicyVersionAccepted', 'legacy-refund-v0'],
+  ]) {
+    await t.test(`${name} rejects before state or Stripe creation`, async () => {
+      await seedFixture({ registrations: [{ label: 'a' }] });
+      await db.collection('registrations').doc(registrationId('a')).update({ [field]: value });
+      const stripe = new FakeStripe();
+      setStripeForEmulatorTests(stripe);
+      await assert.rejects(checkout('a'));
+      const current = await state('a');
+      assert.equal(current.holds.length, 0);
+      assert.equal(current.payments.length, 0);
+      assert.equal(current.lock.exists, false);
+      assert.equal(stripe.createCount, 0);
+    });
+  }
+
+  for (const [name, field, value] of [
+    ['PR1 active retry with stale Competition acceptance', 'competitionRulesVersionAccepted', 'legacy-competition-v0'],
+    ['PR2 active retry with stale Refund acceptance', 'refundPolicyVersionAccepted', 'legacy-refund-v0'],
+    ['PR3 active retry with an invalid acceptance timestamp', 'competitionRulesAcceptedAt', 'not-a-timestamp'],
+  ]) {
+    await t.test(`${name} rejects without changing the issued checkout state`, async () => {
+      await seedFixture({ registrations: [{ label: 'a' }] });
+      const stripe = new FakeStripe();
+      setStripeForEmulatorTests(stripe);
+      const issued = await checkout('a', REQUEST_IDS[0]);
+      await db.collection('registrations').doc(registrationId('a')).update({ [field]: value });
+
+      await assert.rejects(checkout('a', REQUEST_IDS[0]));
+
+      const current = await state('a');
+      assert.equal(stripe.createCount, 1);
+      assert.equal(current.holds.length, 1);
+      assert.equal(current.holds[0].paymentId, issued.paymentId);
+      assert.equal(current.holds[0].status, 'active');
+      assert.equal(current.payments.length, 1);
+      assert.equal(current.payments[0].id, issued.paymentId);
+      assert.equal(current.payments[0].status, 'pending');
+      assert.equal(current.lock.exists, true);
+      assert.equal(current.lock.data().paymentId, issued.paymentId);
+      assert.equal(current.league.activeHoldCount, 1);
+    });
+  }
+
+  await t.test('PR4 a policy change before provisioning rejects without reserving or calling Stripe', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    setCheckoutTestHookForEmulatorTests(async (stage) => {
+      if (stage === 'before-provisioning-transaction') {
+        await db.collection('registrations').doc(registrationId('a')).update({
+          competitionRulesVersionAccepted: 'legacy-competition-v0',
+        });
+      }
+    });
+
+    try {
+      await assert.rejects(checkout('a'));
+    } finally {
+      setCheckoutTestHookForEmulatorTests(null);
+    }
+
+    const current = await state('a');
+    assert.equal(stripe.createCount, 0);
+    assert.equal(current.holds.length, 0);
+    assert.equal(current.payments.length, 0);
+    assert.equal(current.lock.exists, false);
+    assert.equal(current.league.activeHoldCount, 0);
+  });
+
+  await t.test('PR5 a policy change before activation expires Stripe and safely releases the reservation', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    setCheckoutTestHookForEmulatorTests(async (stage) => {
+      if (stage === 'before-activation-transaction') {
+        await db.collection('registrations').doc(registrationId('a')).update({
+          refundPolicyVersionAccepted: 'legacy-refund-v0',
+        });
+      }
+    });
+
+    try {
+      await assert.rejects(checkout('a'));
+    } finally {
+      setCheckoutTestHookForEmulatorTests(null);
+    }
+
+    const current = await state('a');
+    const session = stripe.sessions.get('cs_test_1');
+    assert.equal(stripe.createCount, 1);
+    assert.equal(session.status, 'expired');
+    assert.equal(session.url, null);
+    assert.equal(current.holds.length, 1);
+    assert.equal(current.holds[0].status, 'released');
+    assert.equal(current.payments.length, 0);
+    assert.equal(current.lock.exists, false);
+    assert.equal(current.league.activeHoldCount, 0);
+  });
+
+  await t.test('PR6 indeterminate Stripe expiration retains provisioning state for reconciliation', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    stripe.expirationError = new Error('expiration unavailable');
+    setStripeForEmulatorTests(stripe);
+    setCheckoutTestHookForEmulatorTests(async (stage) => {
+      if (stage === 'before-activation-transaction') {
+        await db.collection('registrations').doc(registrationId('a')).update({
+          competitionRulesVersionAccepted: 'legacy-competition-v0',
+        });
+      }
+    });
+
+    try {
+      await assert.rejects(checkout('a'));
+    } finally {
+      setCheckoutTestHookForEmulatorTests(null);
+    }
+
+    const current = await state('a');
+    const session = stripe.sessions.get('cs_test_1');
+    assert.equal(stripe.createCount, 1);
+    assert.equal(session.status, 'open');
+    assert.ok(session.url);
+    assert.equal(current.holds.length, 1);
+    assert.equal(current.holds[0].status, 'provisioning');
+    assert.equal(current.payments.length, 0);
+    assert.equal(current.lock.exists, true);
+    assert.equal(current.league.activeHoldCount, 1);
+  });
+
+  await t.test('P15 duplicate creation cannot overwrite the deterministic Registration', async () => {
+    await prepareClientCreation();
+    await createAsClient();
+    await assert.rejects(createAsClient({ leagueId: LEAGUE_2_ID }));
+    assert.equal((await state('a')).registration.leagueId, LEAGUE_1_ID);
+  });
+
+  await t.test('P16 cross-offering League creation is rejected', async () => {
+    await prepareClientCreation();
+    await seedOtherOfferingLeague();
+    await assert.rejects(createAsClient({ leagueId: OTHER_LEAGUE_ID }));
+  });
+
+  await t.test('P17 creation against a non-open League is rejected', async () => {
+    await prepareClientCreation({ league1: { status: 'closed' } });
+    await assert.rejects(createAsClient());
+  });
+
+  await t.test('P18 creation after the registration window closes is rejected', async () => {
+    await prepareClientCreation({
+      offering: { registrationClosesAt: Timestamp.fromMillis(Date.now() - 1_000) },
+    });
+    await assert.rejects(createAsClient());
+  });
+});
 
 test('SeatHold emulator lifecycle A-L', async (t) => {
   await t.test('A. final-seat concurrency', async () => {
