@@ -306,14 +306,16 @@ export function RegistrationPage() {
   useEffect(() => {
     if (!registrationIsLoaded || !selectedStart) return;
 
-    const storedAttempt = getCheckoutAttempt();
+    if (!managedRegistration) return;
+
+    const storedAttempt = getCheckoutAttempt(managedRegistration.id);
     if (!storedAttempt) {
       checkoutAttemptRef.current = null;
       return;
     }
 
     if (
-      managedRegistration?.status === 'pending_payment'
+      managedRegistration.status === 'pending_payment'
       && storedAttempt.registrationId === managedRegistration.id
       && storedAttempt.registrationOfferingId === selectedStart.offering.id
     ) {
@@ -798,7 +800,8 @@ export function RegistrationPage() {
     ) return;
 
     const offeringAtRequest = selectedStart.offering.id;
-    const existingAttempt = checkoutAttemptRef.current ?? getCheckoutAttempt();
+    const existingAttempt = checkoutAttemptRef.current
+      ?? getCheckoutAttempt(managedRegistration.id);
     const registrationPath = `/register${searchParams.size ? `?${searchParams.toString()}` : ''}`;
     const attempt = existingAttempt?.registrationId === managedRegistration.id
       && existingAttempt.registrationOfferingId === offeringAtRequest

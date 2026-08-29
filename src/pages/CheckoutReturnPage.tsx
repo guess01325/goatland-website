@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { LeagueRoster } from '../components/registration/LeagueRoster';
-import { clearCheckoutAttempt, getCheckoutAttempt } from '../lib/checkoutAttempt';
+import { clearCheckoutAttempt, getCurrentCheckoutAttempt } from '../lib/checkoutAttempt';
+import { auth } from '../lib/firebase';
 import type { Game } from '../models/Game';
 import type { League } from '../models/League';
 import type { LeagueStart } from '../models/LeagueStart';
@@ -72,7 +73,9 @@ function formatStartDate(leagueStart: LeagueStart): string {
 }
 
 export function CheckoutReturnPage({ mode }: { mode: CheckoutReturnMode }) {
-  const attempt = useRef(getCheckoutAttempt()).current;
+  const attempt = useRef(
+    auth.currentUser ? getCurrentCheckoutAttempt(auth.currentUser.uid) : null,
+  ).current;
   const [context, setContext] = useState<ReturnContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
