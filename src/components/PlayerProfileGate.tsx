@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthProvider';
 export function PlayerProfileGate() {
   const { user, loading, player, playerLoading, playerError, logOut } = useAuth();
   const location = useLocation();
+  const returnPath = `${location.pathname}${location.search}`;
 
   if (loading || (user && playerLoading)) {
     return (
@@ -14,7 +15,7 @@ export function PlayerProfileGate() {
   }
 
   if (!user) {
-    return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />;
+    return <Navigate to="/login" replace state={{ from: returnPath }} />;
   }
 
   if (playerError) {
@@ -38,7 +39,7 @@ export function PlayerProfileGate() {
   }
 
   if (!player) {
-    return <Navigate to="/onboarding" replace state={{ from: location.pathname }} />;
+    return <Navigate to="/onboarding" replace state={{ from: returnPath }} />;
   }
 
   return <Outlet />;

@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { getAuthErrorMessage } from '../auth/authErrors';
 import { useAuth } from '../auth/AuthProvider';
+import { getSafeReturnPath } from '../lib/returnPath';
 
 type AuthPageProps = {
   mode: 'login' | 'signup';
@@ -18,18 +19,16 @@ export function AuthPage({ mode }: AuthPageProps) {
   const [submitting, setSubmitting] = useState(false);
   const isSignUp = mode === 'signup';
   const requestedPath = (location.state as { from?: unknown } | null)?.from;
-  const returnPath = typeof requestedPath === 'string'
-    && requestedPath.startsWith('/')
-    && !requestedPath.startsWith('//')
-    ? requestedPath
-    : '/onboarding';
+  const returnPath = requestedPath === undefined
+    ? '/onboarding'
+    : getSafeReturnPath(requestedPath);
 
   if (loading) {
     return <AuthLoading />;
   }
 
   if (user) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={returnPath} replace />;
   }
 
   const handleEmailSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -149,7 +148,10 @@ export function AuthPage({ mode }: AuthPageProps) {
 
           <p className="auth-card__switch">
             {isSignUp ? 'Already have an account?' : 'New to GOATLAND?'}{' '}
-            <Link to={isSignUp ? '/login' : '/signup'}>
+            <Link
+              to={isSignUp ? '/login' : '/signup'}
+              state={{ from: returnPath }}
+            >
               {isSignUp ? 'Log in' : 'Create an account'}
             </Link>
           </p>

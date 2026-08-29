@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { CURRENT_RULES_VERSION } from '../config/rules';
+import { getSafeReturnPath } from '../lib/returnPath';
 
 const US_STATES = [
   'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 'Connecticut',
@@ -16,7 +17,11 @@ const US_STATES = [
 
 export function OnboardingPage() {
   const { user, loading, player, playerLoading, playerError, createPlayer } = useAuth();
+  const location = useLocation();
   const navigate = useNavigate();
+  const returnPath = getSafeReturnPath(
+    (location.state as { from?: unknown } | null)?.from,
+  );
   const [displayName, setDisplayName] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState('');
   const [state, setState] = useState('');
@@ -33,11 +38,11 @@ export function OnboardingPage() {
   }
 
   if (!user) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login" replace state={{ from: returnPath }} />;
   }
 
   if (player) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={returnPath} replace />;
   }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -52,7 +57,7 @@ export function OnboardingPage() {
     setSubmitting(true);
     try {
       await createPlayer({ displayName, dateOfBirth, state });
-      navigate('/', { replace: true });
+      navigate(returnPath, { replace: true });
     } catch {
       setError('We could not create your player profile. Please try again.');
     } finally {

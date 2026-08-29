@@ -108,8 +108,8 @@ export function HomePage() {
             title={registrationAnnouncement.opensLabel}
             description={registrationAnnouncement.sectionBody}
           />
-          <Link className="button-link" to={registrationAnnouncement.informationPath}>
-            View Leagues
+          <Link className="button-link" to="/register">
+            Register Now
           </Link>
         </div>
       </section>
