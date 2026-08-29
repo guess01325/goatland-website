@@ -19,6 +19,7 @@ export const collections = {
   registrations: 'registrations',
   registrationOfferings: 'registrationOfferings',
   registrationCheckoutLocks: 'registrationCheckoutLocks',
+  seatHolds: 'seatHolds',
   stripeWebhookEvents: 'stripeWebhookEvents',
 } as const;
 

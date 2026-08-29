@@ -185,6 +185,9 @@ service cloud.firestore {
         && request.resource.data.submittedAt == request.time;
       allow update: if request.auth != null
         && resource.data.playerId == request.auth.uid
+        && !exists(
+          /databases/$(database)/documents/registrationCheckoutLocks/$(registrationId)
+        )
         && hasValidRegistrationData()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'status',
@@ -203,6 +206,10 @@ service cloud.firestore {
     }
 
     match /registrationCheckoutLocks/{registrationId} {
+      allow read, create, update, delete: if false;
+    }
+
+    match /seatHolds/{seatHoldId} {
       allow read, create, update, delete: if false;
     }
 

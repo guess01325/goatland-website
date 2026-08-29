@@ -15,6 +15,7 @@ import {
   getStripe,
   isUuid,
 } from './shared.js';
+import type { SeatHoldData } from './seatHolds.js';
 
 type CheckoutRequest = {
   registrationId?: unknown;
@@ -45,6 +46,7 @@ type LeagueData = {
   status?: unknown;
   capacity?: unknown;
   confirmedCount?: unknown;
+  activeHoldCount?: unknown;
 };
 
 type PlayerData = {
@@ -130,7 +132,11 @@ function validateOffering(offering: OfferingData, now: Timestamp): { amountCents
   return { amountCents: Number(offering.entryFeeCents), currency: 'USD' };
 }
 
-function validateLeague(league: LeagueData, registrationOfferingId: string): void {
+function validateLeague(
+  league: LeagueData,
+  registrationOfferingId: string,
+  requireAvailableSeat = true,
+): { capacity: number; confirmedCount: number; activeHoldCount: number } {
   if (league.registrationOfferingId !== registrationOfferingId) {
     throw new HttpsError('failed-precondition', 'League does not belong to Registration offering.');
   }
@@ -144,13 +150,25 @@ function validateLeague(league: LeagueData, registrationOfferingId: string): voi
     || Number(league.capacity) < 1
     || !Number.isInteger(league.confirmedCount)
     || Number(league.confirmedCount) < 0
+    || !Number.isInteger(league.activeHoldCount)
+    || Number(league.activeHoldCount) < 0
   ) {
     throw new HttpsError('failed-precondition', 'League registration state is invalid.');
   }
 
-  if (Number(league.confirmedCount) >= Number(league.capacity)) {
+  const capacity = Number(league.capacity);
+  const confirmedCount = Number(league.confirmedCount);
+  const activeHoldCount = Number(league.activeHoldCount);
+
+  if (confirmedCount + activeHoldCount > capacity) {
+    throw new HttpsError('failed-precondition', 'League capacity state is inconsistent.');
+  }
+
+  if (requireAvailableSeat && confirmedCount + activeHoldCount >= capacity) {
     throw new HttpsError('resource-exhausted', 'League is full.');
   }
+
+  return { capacity, confirmedCount, activeHoldCount };
 }
 
 function getLockedAttribution(registration: RegistrationData): Attribution {
@@ -232,19 +250,28 @@ async function getExistingCheckoutUrl(
   paymentId: string,
   registrationId: string,
 ): Promise<string | null> {
-  const paymentSnapshot = await db.collection(collections.payments).doc(paymentId).get();
+  const [paymentSnapshot, seatHoldSnapshot] = await Promise.all([
+    db.collection(collections.payments).doc(paymentId).get(),
+    db.collection(collections.seatHolds).doc(paymentId).get(),
+  ]);
 
   if (!paymentSnapshot.exists) {
     return null;
   }
 
   const payment = paymentSnapshot.data();
+  const seatHold = seatHoldSnapshot.data() as SeatHoldData | undefined;
 
   if (
-    payment?.registrationId !== registrationId
+    !seatHoldSnapshot.exists
+    || payment?.registrationId !== registrationId
     || payment.provider !== 'stripe'
     || payment.status !== 'pending'
     || typeof payment.providerCheckoutSessionId !== 'string'
+    || seatHold?.paymentId !== paymentId
+    || seatHold.registrationId !== registrationId
+    || seatHold.status !== 'active'
+    || seatHold.providerCheckoutSessionId !== payment.providerCheckoutSessionId
   ) {
     throw new HttpsError('already-exists', 'This checkout request has already been used.');
   }
@@ -258,16 +285,79 @@ async function getExistingCheckoutUrl(
   return session.url;
 }
 
-async function expireSessionQuietly(session: Stripe.Checkout.Session): Promise<void> {
+async function expireSessionQuietly(session: Stripe.Checkout.Session): Promise<boolean> {
+  if (session.status === 'expired') {
+    return true;
+  }
+
   if (session.status !== 'open') {
-    return;
+    return false;
   }
 
   try {
     await getStripe().checkout.sessions.expire(session.id);
+    return true;
   } catch {
-    // The failed request remains safe because no Payment was persisted or returned.
+    return false;
   }
+}
+
+async function releaseProvisioningHold(
+  paymentId: string,
+  registrationId: string,
+  leagueId: string,
+  providerCheckoutSessionId: string | null = null,
+): Promise<void> {
+  const seatHoldRef = db.collection(collections.seatHolds).doc(paymentId);
+  const leagueRef = db.collection(collections.leagues).doc(leagueId);
+  const checkoutLockRef = db
+    .collection(collections.registrationCheckoutLocks)
+    .doc(registrationId);
+
+  await db.runTransaction(async (transaction) => {
+    const seatHoldSnapshot = await transaction.get(seatHoldRef);
+    const leagueSnapshot = await transaction.get(leagueRef);
+    const checkoutLockSnapshot = await transaction.get(checkoutLockRef);
+
+    if (!seatHoldSnapshot.exists || !leagueSnapshot.exists) {
+      throw new Error('Provisioning SeatHold or League was not found.');
+    }
+
+    const seatHold = seatHoldSnapshot.data() as SeatHoldData;
+
+    if (seatHold.status !== 'provisioning') {
+      return;
+    }
+
+    if (
+      seatHold.paymentId !== paymentId
+      || seatHold.registrationId !== registrationId
+      || seatHold.leagueId !== leagueId
+    ) {
+      throw new Error('Provisioning SeatHold relationship is invalid.');
+    }
+
+    const league = leagueSnapshot.data() as LeagueData;
+
+    if (!Number.isInteger(league.activeHoldCount) || Number(league.activeHoldCount) < 1) {
+      throw new Error('League active hold count is invalid.');
+    }
+
+    const timestamp = Timestamp.now();
+    transaction.update(leagueRef, {
+      activeHoldCount: Number(league.activeHoldCount) - 1,
+      updatedAt: timestamp,
+    });
+    transaction.update(seatHoldRef, {
+      providerCheckoutSessionId,
+      status: 'released',
+      updatedAt: timestamp,
+    });
+
+    if (checkoutLockSnapshot.data()?.paymentId === paymentId) {
+      transaction.delete(checkoutLockRef);
+    }
+  });
 }
 
 export const createRegistrationCheckout = onCall(
@@ -296,6 +386,11 @@ export const createRegistrationCheckout = onCall(
 
     const playerRef = db.collection(collections.players).doc(playerId);
     const registrationRef = db.collection(collections.registrations).doc(registrationId);
+    const paymentRef = db.collection(collections.payments).doc(paymentId);
+    const seatHoldRef = db.collection(collections.seatHolds).doc(paymentId);
+    const checkoutLockRef = db
+      .collection(collections.registrationCheckoutLocks)
+      .doc(registrationId);
     const [playerSnapshot, registrationSnapshot] = await Promise.all([
       playerRef.get(),
       registrationRef.get(),
@@ -320,9 +415,10 @@ export const createRegistrationCheckout = onCall(
     const leagueId = requireString(registration.leagueId, 'Registration league');
     const offeringRef = db.collection(collections.registrationOfferings).doc(offeringId);
     const leagueRef = db.collection(collections.leagues).doc(leagueId);
-    const [offeringSnapshot, leagueSnapshot] = await Promise.all([
+    const [offeringSnapshot, leagueSnapshot, seatHoldSnapshot] = await Promise.all([
       offeringRef.get(),
       leagueRef.get(),
+      seatHoldRef.get(),
     ]);
 
     if (!offeringSnapshot.exists || !leagueSnapshot.exists) {
@@ -330,48 +426,208 @@ export const createRegistrationCheckout = onCall(
     }
 
     const price = validateOffering(offeringSnapshot.data() as OfferingData, Timestamp.now());
-    validateLeague(leagueSnapshot.data() as LeagueData, offeringId);
+    const existingSeatHold = seatHoldSnapshot.data() as SeatHoldData | undefined;
+    const isProvisioningRetry = seatHoldSnapshot.exists
+      && existingSeatHold?.paymentId === paymentId
+      && existingSeatHold.registrationId === registrationId
+      && existingSeatHold.registrationOfferingId === offeringId
+      && existingSeatHold.leagueId === leagueId
+      && existingSeatHold.status === 'provisioning';
+    validateLeague(leagueSnapshot.data() as LeagueData, offeringId, !isProvisioningRetry);
     const attribution = await validateAttribution(registration, data.promoCode);
     const successUrl = requireConfiguredUrl(checkoutSuccessUrl.value(), 'CHECKOUT_SUCCESS_URL');
     const cancelUrl = requireConfiguredUrl(checkoutCancelUrl.value(), 'CHECKOUT_CANCEL_URL');
-    const stripe = getStripe();
-    const session = await stripe.checkout.sessions.create(
-      {
-        mode: 'payment',
-        managed_payments: { enabled: false },
-        payment_method_types: ['card'],
-        client_reference_id: registrationId,
-        success_url: successUrl,
-        cancel_url: cancelUrl,
-        line_items: [{
-          quantity: 1,
-          price_data: {
-            currency: price.currency.toLowerCase(),
-            unit_amount: price.amountCents,
-            product_data: { name: 'GOATLAND registration entry' },
-          },
-        }],
-        metadata: { paymentId, registrationId },
-        payment_intent_data: { metadata: { paymentId, registrationId } },
-      },
-      { idempotencyKey: `goatland-checkout-${paymentId}` },
-    );
-
-    if (!session.url) {
-      await expireSessionQuietly(session);
-      throw new HttpsError('internal', 'Stripe did not return a Checkout URL.');
-    }
 
     await db.runTransaction(async (transaction) => {
+      const currentPlayerSnapshot = await transaction.get(playerRef);
+      const currentRegistrationSnapshot = await transaction.get(registrationRef);
+      const currentOfferingSnapshot = await transaction.get(offeringRef);
+      const currentLeagueSnapshot = await transaction.get(leagueRef);
+      const paymentSnapshot = await transaction.get(paymentRef);
+      const currentSeatHoldSnapshot = await transaction.get(seatHoldRef);
+      const checkoutLockSnapshot = await transaction.get(checkoutLockRef);
+      const currentPromoSnapshot = attribution
+        ? await transaction.get(db.collection(collections.promoCodes).doc(attribution.promoCodeId))
+        : null;
+      const currentPromoterSnapshot = attribution
+        ? await transaction.get(
+          db.collection(collections.promoters).doc(attribution.promoterIdSnapshot),
+        )
+        : null;
+
+      const currentPlayer = currentPlayerSnapshot.data() as PlayerData | undefined;
+
+      if (
+        !currentPlayerSnapshot.exists
+        || currentPlayer?.accountStatus !== 'active'
+        || currentPlayer.profileComplete !== true
+        || !currentRegistrationSnapshot.exists
+        || !currentOfferingSnapshot.exists
+        || !currentLeagueSnapshot.exists
+      ) {
+        throw new HttpsError('failed-precondition', 'Checkout eligibility changed.');
+      }
+
+      const currentRegistration = currentRegistrationSnapshot.data() as RegistrationData;
+      const currentOfferingId = validateRegistrationOwner(currentRegistration, playerId);
+
+      if (
+        currentOfferingId !== offeringId
+        || requireString(currentRegistration.leagueId, 'Registration league') !== leagueId
+      ) {
+        throw new HttpsError('failed-precondition', 'Checkout eligibility changed.');
+      }
+
+      const currentPrice = validateOffering(
+        currentOfferingSnapshot.data() as OfferingData,
+        Timestamp.now(),
+      );
+
+      if (
+        currentPrice.amountCents !== price.amountCents
+        || currentPrice.currency !== price.currency
+        || JSON.stringify(getLockedAttribution(currentRegistration))
+          !== JSON.stringify(getLockedAttribution(registration))
+      ) {
+        throw new HttpsError('failed-precondition', 'Checkout terms changed.');
+      }
+
+      if (
+        attribution
+        && (
+          !currentPromoSnapshot?.exists
+          || currentPromoSnapshot.data()?.status !== 'active'
+          || currentPromoSnapshot.data()?.promoterId !== attribution.promoterIdSnapshot
+          || !currentPromoterSnapshot?.exists
+          || currentPromoterSnapshot.data()?.status !== 'active'
+        )
+      ) {
+        throw new HttpsError('failed-precondition', 'PromoCode is invalid or unavailable.');
+      }
+
+      if (paymentSnapshot.exists) {
+        throw new HttpsError('already-exists', 'Checkout request already exists.');
+      }
+
+      if (
+        checkoutLockSnapshot.exists
+        && checkoutLockSnapshot.data()?.paymentId !== paymentId
+      ) {
+        throw new HttpsError(
+          'failed-precondition',
+          'Registration already has an open Checkout Session.',
+        );
+      }
+
+      if (currentSeatHoldSnapshot.exists) {
+        const currentSeatHold = currentSeatHoldSnapshot.data() as SeatHoldData;
+
+        if (
+          currentSeatHold.paymentId !== paymentId
+          || currentSeatHold.registrationId !== registrationId
+          || currentSeatHold.registrationOfferingId !== offeringId
+          || currentSeatHold.leagueId !== leagueId
+          || currentSeatHold.status !== 'provisioning'
+          || checkoutLockSnapshot.data()?.paymentId !== paymentId
+        ) {
+          throw new HttpsError('already-exists', 'Checkout request already exists.');
+        }
+
+        validateLeague(currentLeagueSnapshot.data() as LeagueData, offeringId, false);
+        return;
+      }
+
+      const { activeHoldCount } = validateLeague(
+        currentLeagueSnapshot.data() as LeagueData,
+        offeringId,
+      );
+      const timestamp = Timestamp.now();
+
+      transaction.create(seatHoldRef, {
+        registrationId,
+        registrationOfferingId: offeringId,
+        leagueId,
+        paymentId,
+        providerCheckoutSessionId: null,
+        status: 'provisioning',
+        expiresAt: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+      transaction.update(leagueRef, {
+        activeHoldCount: activeHoldCount + 1,
+        updatedAt: timestamp,
+      });
+      transaction.set(checkoutLockRef, {
+        paymentId,
+        registrationId,
+        updatedAt: timestamp,
+      });
+    });
+
+    const stripe = getStripe();
+    let session: Stripe.Checkout.Session;
+
+    try {
+      session = await stripe.checkout.sessions.create(
+        {
+          mode: 'payment',
+          managed_payments: { enabled: false },
+          payment_method_types: ['card'],
+          client_reference_id: registrationId,
+          success_url: successUrl,
+          cancel_url: cancelUrl,
+          line_items: [{
+            quantity: 1,
+            price_data: {
+              currency: price.currency.toLowerCase(),
+              unit_amount: price.amountCents,
+              product_data: { name: 'GOATLAND registration entry' },
+            },
+          }],
+          metadata: { paymentId, registrationId, leagueId, seatHoldId: paymentId },
+          payment_intent_data: {
+            metadata: { paymentId, registrationId, leagueId, seatHoldId: paymentId },
+          },
+        },
+        { idempotencyKey: `goatland-checkout-${paymentId}` },
+      );
+    } catch (error) {
+      const isIndeterminateConnectionFailure = (
+        error as { type?: unknown }
+      )?.type === 'StripeConnectionError';
+
+      if (!isIndeterminateConnectionFailure) {
+        await releaseProvisioningHold(paymentId, registrationId, leagueId);
+      }
+      throw error;
+    }
+
+    const sessionExpiresAt = Number.isInteger(session.expires_at)
+      ? Timestamp.fromMillis(session.expires_at * 1000)
+      : null;
+
+    if (
+      session.status !== 'open'
+      || !session.url
+      || !sessionExpiresAt
+      || sessionExpiresAt.toMillis() <= Timestamp.now().toMillis()
+    ) {
+      const sessionExpired = await expireSessionQuietly(session);
+      if (sessionExpired) {
+        await releaseProvisioningHold(paymentId, registrationId, leagueId, session.id);
+      }
+      throw new HttpsError('internal', 'Stripe did not return a usable Checkout Session.');
+    }
+
+    try {
+      await db.runTransaction(async (transaction) => {
         const currentPlayerSnapshot = await transaction.get(playerRef);
         const currentRegistrationSnapshot = await transaction.get(registrationRef);
         const currentOfferingSnapshot = await transaction.get(offeringRef);
         const currentLeagueSnapshot = await transaction.get(leagueRef);
-        const paymentRef = db.collection(collections.payments).doc(paymentId);
         const paymentSnapshot = await transaction.get(paymentRef);
-        const checkoutLockRef = db
-          .collection(collections.registrationCheckoutLocks)
-          .doc(registrationId);
+        const currentSeatHoldSnapshot = await transaction.get(seatHoldRef);
         const checkoutLockSnapshot = await transaction.get(checkoutLockRef);
         const currentPromoSnapshot = attribution
           ? await transaction.get(db.collection(collections.promoCodes).doc(attribution.promoCodeId))
@@ -381,7 +637,6 @@ export const createRegistrationCheckout = onCall(
             db.collection(collections.promoters).doc(attribution.promoterIdSnapshot),
           )
           : null;
-
         const currentPlayer = currentPlayerSnapshot.data() as PlayerData | undefined;
 
         if (
@@ -391,23 +646,43 @@ export const createRegistrationCheckout = onCall(
           || !currentRegistrationSnapshot.exists
           || !currentOfferingSnapshot.exists
           || !currentLeagueSnapshot.exists
+          || !currentSeatHoldSnapshot.exists
         ) {
           throw new HttpsError('failed-precondition', 'Checkout eligibility changed.');
         }
 
         const currentRegistration = currentRegistrationSnapshot.data() as RegistrationData;
         const currentOfferingId = validateRegistrationOwner(currentRegistration, playerId);
+        const currentSeatHold = currentSeatHoldSnapshot.data() as SeatHoldData;
 
-        if (currentOfferingId !== offeringId) {
+        if (
+          paymentSnapshot.exists
+          && paymentSnapshot.data()?.providerCheckoutSessionId === session.id
+          && currentSeatHold.paymentId === paymentId
+          && currentSeatHold.registrationId === registrationId
+          && currentSeatHold.registrationOfferingId === offeringId
+          && currentSeatHold.leagueId === leagueId
+          && currentSeatHold.status === 'active'
+          && currentSeatHold.providerCheckoutSessionId === session.id
+          && checkoutLockSnapshot.data()?.paymentId === paymentId
+        ) {
+          return;
+        }
+
+        if (
+          currentOfferingId !== offeringId
+          || requireString(currentRegistration.leagueId, 'Registration league') !== leagueId
+          || currentSeatHold.paymentId !== paymentId
+          || currentSeatHold.registrationId !== registrationId
+          || currentSeatHold.registrationOfferingId !== offeringId
+          || currentSeatHold.leagueId !== leagueId
+          || currentSeatHold.status !== 'provisioning'
+          || checkoutLockSnapshot.data()?.paymentId !== paymentId
+        ) {
           throw new HttpsError('failed-precondition', 'Checkout eligibility changed.');
         }
 
-        if (requireString(currentRegistration.leagueId, 'Registration league') !== leagueId) {
-          throw new HttpsError('failed-precondition', 'Checkout eligibility changed.');
-        }
-
-        validateLeague(currentLeagueSnapshot.data() as LeagueData, offeringId);
-
+        validateLeague(currentLeagueSnapshot.data() as LeagueData, offeringId, false);
         const currentPrice = validateOffering(
           currentOfferingSnapshot.data() as OfferingData,
           Timestamp.now(),
@@ -435,25 +710,11 @@ export const createRegistrationCheckout = onCall(
           throw new HttpsError('failed-precondition', 'PromoCode is invalid or unavailable.');
         }
 
-        if (
-          checkoutLockSnapshot.exists
-          && checkoutLockSnapshot.data()?.paymentId !== paymentId
-        ) {
-          throw new HttpsError(
-            'failed-precondition',
-            'Registration already has an open Checkout Session.',
-          );
-        }
-
         if (paymentSnapshot.exists) {
-          if (paymentSnapshot.data()?.providerCheckoutSessionId !== session.id) {
-            throw new HttpsError('already-exists', 'Checkout request already exists.');
-          }
-          return;
+          throw new HttpsError('already-exists', 'Checkout request already exists.');
         }
 
         const timestamp = Timestamp.now();
-
         transaction.create(paymentRef, {
           registrationId,
           provider: 'stripe',
@@ -468,9 +729,10 @@ export const createRegistrationCheckout = onCall(
           failedAt: null,
           expiredAt: null,
         });
-        transaction.set(checkoutLockRef, {
-          paymentId,
-          registrationId,
+        transaction.update(seatHoldRef, {
+          providerCheckoutSessionId: session.id,
+          status: 'active',
+          expiresAt: sessionExpiresAt,
           updatedAt: timestamp,
         });
 
@@ -482,7 +744,14 @@ export const createRegistrationCheckout = onCall(
             updatedAt: timestamp,
           });
         }
-    });
+      });
+    } catch (error) {
+      const sessionExpired = await expireSessionQuietly(session);
+      if (sessionExpired) {
+        await releaseProvisioningHold(paymentId, registrationId, leagueId, session.id);
+      }
+      throw error;
+    }
 
     return { paymentId, checkoutUrl: session.url };
   },

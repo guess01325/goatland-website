@@ -3,6 +3,7 @@ import { logger } from 'firebase-functions';
 import { onRequest } from 'firebase-functions/v2/https';
 import type Stripe from 'stripe';
 import { stripeSecretKey, stripeWebhookSecret } from './config.js';
+import type { SeatHoldData } from './seatHolds.js';
 import { collections, db, getPaymentIntentId, getStripe } from './shared.js';
 
 type PaymentData = {
@@ -24,6 +25,8 @@ type RegistrationData = {
 
 type LeagueData = {
   registrationOfferingId?: unknown;
+  status?: unknown;
+  capacity?: unknown;
   confirmedCount?: unknown;
   activeHoldCount?: unknown;
   lastAssignedRegistrationOrder?: unknown;
@@ -32,15 +35,19 @@ type LeagueData = {
 function requireMetadata(session: Stripe.Checkout.Session): {
   paymentId: string;
   registrationId: string;
+  leagueId: string;
+  seatHoldId: string;
 } {
   const paymentId = session.metadata?.paymentId;
   const registrationId = session.metadata?.registrationId;
+  const leagueId = session.metadata?.leagueId;
+  const seatHoldId = session.metadata?.seatHoldId;
 
-  if (!paymentId || !registrationId) {
+  if (!paymentId || !registrationId || !leagueId || !seatHoldId) {
     throw new Error('Stripe Checkout Session metadata is incomplete.');
   }
 
-  return { paymentId, registrationId };
+  return { paymentId, registrationId, leagueId, seatHoldId };
 }
 
 function eventRecord(event: Stripe.Event, session: Stripe.Checkout.Session, timestamp: Timestamp) {
@@ -60,10 +67,12 @@ async function fulfillSuccessfulCheckout(
     throw new Error('Stripe Checkout Session is not an authoritative paid payment.');
   }
 
-  const { paymentId, registrationId } = requireMetadata(session);
+  const { paymentId, registrationId, leagueId, seatHoldId } = requireMetadata(session);
   const eventRef = db.collection(collections.stripeWebhookEvents).doc(event.id);
   const paymentRef = db.collection(collections.payments).doc(paymentId);
   const registrationRef = db.collection(collections.registrations).doc(registrationId);
+  const seatHoldRef = db.collection(collections.seatHolds).doc(seatHoldId);
+  const leagueRef = db.collection(collections.leagues).doc(leagueId);
   const checkoutLockRef = db
     .collection(collections.registrationCheckoutLocks)
     .doc(registrationId);
@@ -72,18 +81,27 @@ async function fulfillSuccessfulCheckout(
     const eventSnapshot = await transaction.get(eventRef);
     const paymentSnapshot = await transaction.get(paymentRef);
     const registrationSnapshot = await transaction.get(registrationRef);
+    const seatHoldSnapshot = await transaction.get(seatHoldRef);
+    const leagueSnapshot = await transaction.get(leagueRef);
     const checkoutLockSnapshot = await transaction.get(checkoutLockRef);
 
     if (eventSnapshot.exists) {
       return;
     }
 
-    if (!paymentSnapshot.exists || !registrationSnapshot.exists) {
-      throw new Error('Payment or Registration was not found.');
+    if (
+      !paymentSnapshot.exists
+      || !registrationSnapshot.exists
+      || !seatHoldSnapshot.exists
+      || !leagueSnapshot.exists
+    ) {
+      throw new Error('Payment, Registration, SeatHold, or League was not found.');
     }
 
     const payment = paymentSnapshot.data() as PaymentData;
     const registration = registrationSnapshot.data() as RegistrationData;
+    const seatHold = seatHoldSnapshot.data() as SeatHoldData;
+    const league = leagueSnapshot.data() as LeagueData;
 
     if (
       payment.registrationId !== registrationId
@@ -95,29 +113,32 @@ async function fulfillSuccessfulCheckout(
       throw new Error('Stripe Checkout Session does not match Payment.');
     }
 
-    if (typeof registration.registrationOfferingId !== 'string') {
+    if (
+      typeof registration.registrationOfferingId !== 'string'
+      || registration.leagueId !== leagueId
+      || seatHoldId !== paymentId
+    ) {
       throw new Error('Registration offering relationship is invalid.');
     }
 
-    if (typeof registration.leagueId !== 'string') {
-      throw new Error('Registration League relationship is invalid.');
-    }
-
-    const leagueRef = db.collection(collections.leagues).doc(registration.leagueId);
     const offeringRef = db
       .collection(collections.registrationOfferings)
       .doc(registration.registrationOfferingId);
-    const leagueSnapshot = await transaction.get(leagueRef);
     const offeringSnapshot = await transaction.get(offeringRef);
 
-    if (!leagueSnapshot.exists || !offeringSnapshot.exists) {
-      throw new Error('League or Registration offering was not found.');
+    if (!offeringSnapshot.exists) {
+      throw new Error('Registration offering was not found.');
     }
 
-    const league = leagueSnapshot.data() as LeagueData;
-
-    if (league.registrationOfferingId !== registration.registrationOfferingId) {
-      throw new Error('League does not belong to Registration offering.');
+    if (
+      league.registrationOfferingId !== registration.registrationOfferingId
+      || seatHold.paymentId !== paymentId
+      || seatHold.registrationId !== registrationId
+      || seatHold.registrationOfferingId !== registration.registrationOfferingId
+      || seatHold.leagueId !== leagueId
+      || seatHold.providerCheckoutSessionId !== session.id
+    ) {
+      throw new Error('SeatHold, League, or Registration offering relationship is invalid.');
     }
 
     const timestamp = Timestamp.now();
@@ -128,6 +149,7 @@ async function fulfillSuccessfulCheckout(
         registration.status !== 'confirmed'
         || !Number.isInteger(registration.registrationOrder)
         || !(registration.confirmedAt instanceof Timestamp)
+        || seatHold.status !== 'converted'
       ) {
         throw new Error('Succeeded Payment has inconsistent Registration state.');
       }
@@ -140,6 +162,10 @@ async function fulfillSuccessfulCheckout(
     }
 
     if (registration.status === 'confirmed') {
+      if (seatHold.status !== 'converted') {
+        throw new Error('Confirmed Registration has inconsistent SeatHold state.');
+      }
+
       transaction.update(paymentRef, {
         status: 'succeeded',
         providerPaymentIntentId,
@@ -157,29 +183,48 @@ async function fulfillSuccessfulCheckout(
       registration.status !== 'pending_payment'
       || registration.registrationOrder !== null
       || registration.confirmedAt !== null
+      || payment.status !== 'pending'
+      || seatHold.status !== 'active'
     ) {
       throw new Error('Registration is not eligible for payment fulfillment.');
     }
 
     const lastAssignedOrder = league.lastAssignedRegistrationOrder;
     const confirmedCount = league.confirmedCount;
+    const activeHoldCount = league.activeHoldCount;
+    const capacity = league.capacity;
 
     if (
       !Number.isInteger(lastAssignedOrder)
       || Number(lastAssignedOrder) < 0
       || !Number.isInteger(confirmedCount)
       || Number(confirmedCount) < 0
-      || !Number.isInteger(league.activeHoldCount)
-      || Number(league.activeHoldCount) < 0
+      || !Number.isInteger(activeHoldCount)
+      || Number(activeHoldCount) < 1
+      || !Number.isInteger(capacity)
+      || Number(capacity) < 1
+      || Number(confirmedCount) + Number(activeHoldCount) > Number(capacity)
     ) {
       throw new Error('League registration state is invalid.');
     }
 
     const nextOrder = Number(lastAssignedOrder) + 1;
+    const nextConfirmedCount = Number(confirmedCount) + 1;
+    const nextActiveHoldCount = Number(activeHoldCount) - 1;
+
+    if (
+      nextConfirmedCount > Number(capacity)
+      || nextActiveHoldCount < 0
+      || nextConfirmedCount + nextActiveHoldCount > Number(capacity)
+    ) {
+      throw new Error('SeatHold conversion would violate League capacity.');
+    }
 
     transaction.update(leagueRef, {
-      confirmedCount: Number(confirmedCount) + 1,
+      confirmedCount: nextConfirmedCount,
+      activeHoldCount: nextActiveHoldCount,
       lastAssignedRegistrationOrder: nextOrder,
+      status: nextConfirmedCount === Number(capacity) ? 'full' : league.status,
       updatedAt: timestamp,
     });
     transaction.update(paymentRef, {
@@ -194,6 +239,10 @@ async function fulfillSuccessfulCheckout(
       confirmedAt: timestamp,
       updatedAt: timestamp,
     });
+    transaction.update(seatHoldRef, {
+      status: 'converted',
+      updatedAt: timestamp,
+    });
     transaction.create(eventRef, eventRecord(event, session, timestamp));
     if (checkoutLockSnapshot.data()?.paymentId === paymentId) {
       transaction.delete(checkoutLockRef);
@@ -205,9 +254,12 @@ async function expireCheckout(
   event: Stripe.Event,
   session: Stripe.Checkout.Session,
 ): Promise<void> {
-  const { paymentId, registrationId } = requireMetadata(session);
+  const { paymentId, registrationId, leagueId, seatHoldId } = requireMetadata(session);
   const eventRef = db.collection(collections.stripeWebhookEvents).doc(event.id);
   const paymentRef = db.collection(collections.payments).doc(paymentId);
+  const registrationRef = db.collection(collections.registrations).doc(registrationId);
+  const seatHoldRef = db.collection(collections.seatHolds).doc(seatHoldId);
+  const leagueRef = db.collection(collections.leagues).doc(leagueId);
   const checkoutLockRef = db
     .collection(collections.registrationCheckoutLocks)
     .doc(registrationId);
@@ -215,38 +267,114 @@ async function expireCheckout(
   await db.runTransaction(async (transaction) => {
     const eventSnapshot = await transaction.get(eventRef);
     const paymentSnapshot = await transaction.get(paymentRef);
+    const registrationSnapshot = await transaction.get(registrationRef);
+    const seatHoldSnapshot = await transaction.get(seatHoldRef);
+    const leagueSnapshot = await transaction.get(leagueRef);
     const checkoutLockSnapshot = await transaction.get(checkoutLockRef);
 
     if (eventSnapshot.exists) {
       return;
     }
 
+    if (
+      !registrationSnapshot.exists
+      || !seatHoldSnapshot.exists
+      || !leagueSnapshot.exists
+    ) {
+      throw new Error('Registration, SeatHold, or League was not found.');
+    }
+
+    const registration = registrationSnapshot.data() as RegistrationData;
+    const seatHold = seatHoldSnapshot.data() as SeatHoldData;
+    const league = leagueSnapshot.data() as LeagueData;
+    const timestamp = Timestamp.now();
+
     if (!paymentSnapshot.exists) {
-      transaction.create(
-        eventRef,
-        eventRecord(event, session, Timestamp.now()),
-      );
+      if (
+        seatHoldId !== paymentId
+        || registration.leagueId !== leagueId
+        || seatHold.paymentId !== paymentId
+        || seatHold.registrationId !== registrationId
+        || seatHold.registrationOfferingId !== registration.registrationOfferingId
+        || seatHold.leagueId !== leagueId
+        || seatHold.providerCheckoutSessionId !== session.id
+        || seatHold.status !== 'released'
+        || league.registrationOfferingId !== registration.registrationOfferingId
+      ) {
+        throw new Error('Released SeatHold relationships are inconsistent.');
+      }
+
+      transaction.create(eventRef, eventRecord(event, session, timestamp));
+      if (checkoutLockSnapshot.data()?.paymentId === paymentId) {
+        transaction.delete(checkoutLockRef);
+      }
       return;
     }
 
     const payment = paymentSnapshot.data() as PaymentData;
 
     if (
-      payment.registrationId !== registrationId
+      seatHoldId !== paymentId
+      || payment.registrationId !== registrationId
       || payment.provider !== 'stripe'
       || payment.providerCheckoutSessionId !== session.id
+      || registration.leagueId !== leagueId
+      || seatHold.paymentId !== paymentId
+      || seatHold.registrationId !== registrationId
+      || seatHold.registrationOfferingId !== registration.registrationOfferingId
+      || seatHold.leagueId !== leagueId
+      || seatHold.providerCheckoutSessionId !== session.id
+      || league.registrationOfferingId !== registration.registrationOfferingId
     ) {
-      throw new Error('Stripe Checkout Session does not match Payment.');
+      throw new Error('Expired Checkout Session relationships are inconsistent.');
     }
 
-    const timestamp = Timestamp.now();
+    if (seatHold.status === 'active') {
+      if (payment.status !== 'pending') {
+        throw new Error('Active SeatHold has inconsistent Payment state.');
+      }
 
-    if (payment.status === 'pending') {
+      if (
+        !Number.isInteger(league.activeHoldCount)
+        || Number(league.activeHoldCount) < 1
+        || !Number.isInteger(league.confirmedCount)
+        || Number(league.confirmedCount) < 0
+        || !Number.isInteger(league.capacity)
+        || Number(league.capacity) < 1
+        || Number(league.confirmedCount) + Number(league.activeHoldCount)
+          > Number(league.capacity)
+      ) {
+        throw new Error('League capacity state is invalid.');
+      }
+
+      transaction.update(leagueRef, {
+        activeHoldCount: Number(league.activeHoldCount) - 1,
+        updatedAt: timestamp,
+      });
+      transaction.update(seatHoldRef, {
+        status: 'expired',
+        updatedAt: timestamp,
+      });
+
       transaction.update(paymentRef, {
         status: 'expired',
         expiredAt: timestamp,
         updatedAt: timestamp,
       });
+    } else if (seatHold.status === 'converted') {
+      if (payment.status !== 'succeeded' || registration.status !== 'confirmed') {
+        throw new Error('Converted SeatHold has inconsistent fulfillment state.');
+      }
+    } else if (seatHold.status === 'expired' || seatHold.status === 'released') {
+      if (payment.status === 'pending') {
+        transaction.update(paymentRef, {
+          status: 'expired',
+          expiredAt: timestamp,
+          updatedAt: timestamp,
+        });
+      }
+    } else {
+      throw new Error('SeatHold is not eligible for expiration.');
     }
 
     transaction.create(eventRef, eventRecord(event, session, timestamp));
