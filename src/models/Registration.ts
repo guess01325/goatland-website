@@ -9,6 +9,55 @@ export const REGISTRATION_STATUSES = [
 
 export type RegistrationStatus = (typeof REGISTRATION_STATUSES)[number];
 
+export const ACQUISITION_SOURCES = [
+  'facebook',
+  'instagram',
+  'tiktok',
+  'discord',
+  'google',
+  'friend_family',
+  'event',
+  'other',
+] as const;
+
+export type AcquisitionSource = (typeof ACQUISITION_SOURCES)[number];
+
+export const ACQUISITION_SOURCE_OTHER_MAX_LENGTH = 100;
+
+export type AcquisitionAttribution = {
+  acquisitionSource: AcquisitionSource;
+  acquisitionSourceOther: string | null;
+};
+
+export function normalizeAcquisitionAttribution(input: {
+  acquisitionSource: unknown;
+  acquisitionSourceOther: unknown;
+}): AcquisitionAttribution {
+  if (!ACQUISITION_SOURCES.includes(input.acquisitionSource as AcquisitionSource)) {
+    throw new Error('Acquisition source is invalid.');
+  }
+
+  const acquisitionSource = input.acquisitionSource as AcquisitionSource;
+  if (acquisitionSource !== 'other') {
+    return { acquisitionSource, acquisitionSourceOther: null };
+  }
+
+  if (typeof input.acquisitionSourceOther !== 'string') {
+    throw new Error('Acquisition source details are required.');
+  }
+
+  const acquisitionSourceOther = input.acquisitionSourceOther.trim();
+  const acquisitionSourceOtherLength = Array.from(acquisitionSourceOther).length;
+  if (
+    acquisitionSourceOtherLength === 0
+    || acquisitionSourceOtherLength > ACQUISITION_SOURCE_OTHER_MAX_LENGTH
+  ) {
+    throw new Error('Acquisition source details must be 1–100 characters.');
+  }
+
+  return { acquisitionSource, acquisitionSourceOther };
+}
+
 export type Registration = {
   id: string;
   playerId: string;
@@ -19,6 +68,8 @@ export type Registration = {
   competitionRulesAcceptedAt: Timestamp;
   refundPolicyVersionAccepted: string;
   refundPolicyAcceptedAt: Timestamp;
+  acquisitionSource: AcquisitionSource;
+  acquisitionSourceOther: string | null;
   promoCodeId: string | null;
   promoCodeSnapshot: string | null;
   promoterIdSnapshot: string | null;
@@ -38,4 +89,6 @@ export type CreateRegistrationInput = Pick<
   | 'leagueId'
   | 'competitionRulesVersionAccepted'
   | 'refundPolicyVersionAccepted'
+  | 'acquisitionSource'
+  | 'acquisitionSourceOther'
 >;

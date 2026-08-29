@@ -44,7 +44,7 @@ process.env.CHECKOUT_CANCEL_URL = 'http://localhost/checkout/cancel';
 const requireFromFunctions = createRequire(
   new URL('../functions/package.json', import.meta.url),
 );
-const { Timestamp } = requireFromFunctions('firebase-admin/firestore');
+const { FieldValue, Timestamp } = requireFromFunctions('firebase-admin/firestore');
 const {
   db,
   getPublicRosterEntryId,
@@ -58,6 +58,7 @@ const {
   expireCheckout,
   fulfillSuccessfulCheckout,
 } = await import('../functions/lib/webhook.js');
+const { normalizeAcquisitionAttribution } = await import('../src/models/Registration.ts');
 
 class FakeStripe {
   constructor() {
@@ -173,7 +174,12 @@ async function seedFixture({ league1 = {}, league2 = {}, registrations = [] } = 
   batch.set(db.collection('leagues').doc(LEAGUE_1_ID), leagueData(1, league1));
   batch.set(db.collection('leagues').doc(LEAGUE_2_ID), leagueData(2, league2));
 
-  for (const { label, leagueId = LEAGUE_1_ID } of registrations) {
+  for (const {
+    label,
+    leagueId = LEAGUE_1_ID,
+    acquisitionSource = 'facebook',
+    acquisitionSourceOther = null,
+  } of registrations) {
     const identity = identities[label];
     batch.set(db.collection('players').doc(identity.uid), {
       displayName: `Player ${label}`,
@@ -196,6 +202,8 @@ async function seedFixture({ league1 = {}, league2 = {}, registrations = [] } = 
       competitionRulesAcceptedAt: now,
       refundPolicyVersionAccepted: 'test-refund-v1',
       refundPolicyAcceptedAt: now,
+      acquisitionSource,
+      acquisitionSourceOther,
       promoCodeId: null,
       promoCodeSnapshot: null,
       promoterIdSnapshot: null,
@@ -211,10 +219,10 @@ async function seedFixture({ league1 = {}, league2 = {}, registrations = [] } = 
   await batch.commit();
 }
 
-function checkout(label, requestId = REQUEST_IDS[0]) {
+function checkout(label, requestId = REQUEST_IDS[0], promoCode = undefined) {
   return createRegistrationCheckout.run({
     auth: { uid: identities[label].uid, token: { email: identities[label].email } },
-    data: { registrationId: registrationId(label), checkoutRequestId: requestId },
+    data: { registrationId: registrationId(label), checkoutRequestId: requestId, promoCode },
   });
 }
 
@@ -295,6 +303,49 @@ async function withClient(label, action) {
   } finally {
     await deleteApp(app);
   }
+}
+
+function clientRegistrationData(label, acquisition = {
+  acquisitionSource: 'facebook',
+  acquisitionSourceOther: null,
+}) {
+  const timestamp = serverTimestamp();
+  return {
+    playerId: identities[label].uid,
+    registrationOfferingId: OFFERING_ID,
+    leagueId: LEAGUE_1_ID,
+    status: 'pending_payment',
+    competitionRulesVersionAccepted: 'test-competition-v1',
+    competitionRulesAcceptedAt: timestamp,
+    refundPolicyVersionAccepted: 'test-refund-v1',
+    refundPolicyAcceptedAt: timestamp,
+    ...acquisition,
+    promoCodeId: null,
+    promoCodeSnapshot: null,
+    promoterIdSnapshot: null,
+    registrationOrder: null,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    submittedAt: timestamp,
+    confirmedAt: null,
+    cancelledAt: null,
+  };
+}
+
+async function recreateRegistrationAsClient(label, acquisition) {
+  await seedFixture({ registrations: [{ label }] });
+  await db.collection('registrations').doc(registrationId(label)).delete();
+  await withClient(label, (firestore) => setDoc(
+    doc(firestore, 'registrations', registrationId(label)),
+    clientRegistrationData(label, acquisition),
+  ));
+}
+
+async function updateAcquisitionAsClient(label, acquisition) {
+  return withClient(label, (firestore) => updateDoc(
+    doc(firestore, 'registrations', registrationId(label)),
+    { ...acquisition, updatedAt: serverTimestamp() },
+  ));
 }
 
 await Promise.all(['a', 'b', 'c'].map(createIdentity));
@@ -579,6 +630,338 @@ test('SeatHold emulator lifecycle A-L', async (t) => {
     assert.equal(roster2.size, 1);
     assert.equal(roster1.docs[0].data().registrationOrder, 3);
     assert.equal(roster2.docs[0].data().registrationOrder, 6);
+  });
+});
+
+test('Acquisition source lifecycle A1-A28', async (t) => {
+  for (const acquisition of [
+    { acquisitionSource: 'facebook', acquisitionSourceOther: null },
+    { acquisitionSource: 'instagram', acquisitionSourceOther: null },
+    { acquisitionSource: 'friend_family', acquisitionSourceOther: null },
+    { acquisitionSource: 'other', acquisitionSourceOther: 'Local football event' },
+  ]) {
+    await t.test(`valid creation accepts ${acquisition.acquisitionSource}`, async () => {
+      await recreateRegistrationAsClient('a', acquisition);
+      const registration = (await db.collection('registrations').doc(registrationId('a')).get()).data();
+      assert.equal(registration.acquisitionSource, acquisition.acquisitionSource);
+      assert.equal(registration.acquisitionSourceOther, acquisition.acquisitionSourceOther);
+    });
+  }
+
+  for (const [name, acquisition] of [
+    ['Other plus null', { acquisitionSource: 'other', acquisitionSourceOther: null }],
+    ['Other plus blank text', { acquisitionSource: 'other', acquisitionSourceOther: '' }],
+    ['Other plus text over 100 characters', { acquisitionSource: 'other', acquisitionSourceOther: 'x'.repeat(101) }],
+    ['non-Other plus text', { acquisitionSource: 'facebook', acquisitionSourceOther: 'Event' }],
+    ['unknown source', { acquisitionSource: 'youtube', acquisitionSourceOther: null }],
+    ['leading whitespace', { acquisitionSource: 'other', acquisitionSourceOther: ' Local event' }],
+    ['trailing whitespace', { acquisitionSource: 'other', acquisitionSourceOther: 'Local event ' }],
+  ]) {
+    await t.test(`invalid creation rejects ${name}`, async () => {
+      await seedFixture({ registrations: [{ label: 'a' }] });
+      await db.collection('registrations').doc(registrationId('a')).delete();
+      await assert.rejects(withClient('a', (firestore) => setDoc(
+        doc(firestore, 'registrations', registrationId('a')),
+        clientRegistrationData('a', acquisition),
+      )));
+    });
+  }
+
+  await t.test('creation rejects missing acquisition fields', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    await db.collection('registrations').doc(registrationId('a')).delete();
+    const data = clientRegistrationData('a');
+    delete data.acquisitionSource;
+    delete data.acquisitionSourceOther;
+    await assert.rejects(withClient('a', (firestore) => setDoc(
+      doc(firestore, 'registrations', registrationId('a')),
+      data,
+    )));
+  });
+
+  await t.test('client normalization trims Other and preserves capitalization', () => {
+    assert.deepEqual(normalizeAcquisitionAttribution({
+      acquisitionSource: 'other',
+      acquisitionSourceOther: ' LOCAL Event ',
+    }), {
+      acquisitionSource: 'other',
+      acquisitionSourceOther: 'LOCAL Event',
+    });
+    assert.deepEqual(normalizeAcquisitionAttribution({
+      acquisitionSource: 'discord',
+      acquisitionSourceOther: 'discarded',
+    }), {
+      acquisitionSource: 'discord',
+      acquisitionSourceOther: null,
+    });
+    assert.throws(() => normalizeAcquisitionAttribution({
+      acquisitionSource: 'youtube',
+      acquisitionSourceOther: null,
+    }));
+  });
+
+  await t.test('pending Registration without a lock can update attribution', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    await updateAcquisitionAsClient('a', {
+      acquisitionSource: 'other',
+      acquisitionSourceOther: 'Current Name',
+    });
+    const registration = (await state('a')).registration;
+    assert.equal(registration.acquisitionSource, 'other');
+    assert.equal(registration.acquisitionSourceOther, 'Current Name');
+  });
+
+  await t.test('A19-B deterministic lock-first denies attribution updates', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    await activate('a');
+    await assert.rejects(updateAcquisitionAsClient('a', {
+      acquisitionSource: 'instagram', acquisitionSourceOther: null,
+    }));
+    const current = await state('a');
+    assert.equal(current.lock.exists, true);
+    assert.equal(current.registration.acquisitionSource, 'facebook');
+    assert.equal(current.registration.acquisitionSourceOther, null);
+  });
+
+  await t.test('A19-A deterministic update-first checkout uses updated attribution', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    await updateAcquisitionAsClient('a', {
+      acquisitionSource: 'instagram', acquisitionSourceOther: null,
+    });
+    let current = await state('a');
+    assert.equal(current.registration.acquisitionSource, 'instagram');
+    assert.equal(current.registration.acquisitionSourceOther, null);
+
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    await activate('a');
+    current = await state('a');
+    assert.equal(current.lock.exists, true);
+    assert.equal(current.holds[0].status, 'active');
+    assert.equal(current.payments[0].status, 'pending');
+    assert.equal(current.registration.acquisitionSource, 'instagram');
+    assert.equal(current.registration.acquisitionSourceOther, null);
+  });
+
+  await t.test('definite failure removes lock and restores attribution editing', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    stripe.creationError = Object.assign(new Error('definite failure'), {
+      type: 'StripeInvalidRequestError',
+    });
+    setStripeForEmulatorTests(stripe);
+    await assert.rejects(checkout('a'));
+    await updateAcquisitionAsClient('a', {
+      acquisitionSource: 'instagram', acquisitionSourceOther: null,
+    });
+    assert.equal((await state('a')).registration.acquisitionSource, 'instagram');
+  });
+
+  await t.test('expiration removes lock and restores attribution editing', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const { payment } = await activate('a');
+    await expireCheckout(
+      stripeEvent('evt_acquisition_expired', 'checkout.session.expired'),
+      stripe.sessions.get(payment.providerCheckoutSessionId),
+    );
+    await updateAcquisitionAsClient('a', {
+      acquisitionSource: 'friend_family', acquisitionSourceOther: null,
+    });
+    assert.equal((await state('a')).registration.acquisitionSource, 'friend_family');
+  });
+
+  await t.test('indeterminate Stripe failure retains lock and freezes attribution', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    stripe.creationError = Object.assign(new Error('indeterminate failure'), {
+      type: 'StripeConnectionError',
+    });
+    setStripeForEmulatorTests(stripe);
+    await assert.rejects(checkout('a'));
+    const current = await state('a');
+    assert.equal(current.holds[0].status, 'provisioning');
+    assert.equal(current.lock.exists, true);
+    await assert.rejects(updateAcquisitionAsClient('a', {
+      acquisitionSource: 'instagram', acquisitionSourceOther: null,
+    }));
+  });
+
+  await t.test('checkout rejects invalid attribution before capacity or payment state', async () => {
+    for (const badData of [
+      { acquisitionSource: 'other', acquisitionSourceOther: ' ' },
+      { acquisitionSource: 'youtube', acquisitionSourceOther: null },
+      {
+        acquisitionSource: FieldValue.delete(),
+        acquisitionSourceOther: FieldValue.delete(),
+      },
+    ]) {
+      await seedFixture({ registrations: [{ label: 'a' }] });
+      await db.collection('registrations').doc(registrationId('a')).update(badData);
+      const stripe = new FakeStripe();
+      setStripeForEmulatorTests(stripe);
+      await assert.rejects(checkout('a'));
+      const current = await state('a');
+      assert.equal(current.holds.length, 0);
+      assert.equal(current.payments.length, 0);
+      assert.equal(current.league.activeHoldCount, 0);
+      assert.equal(current.lock.exists, false);
+      assert.equal(stripe.createCount, 0);
+    }
+  });
+
+  await t.test('source update and checkout-lock acquisition serialize safely', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const results = await Promise.allSettled([
+      updateAcquisitionAsClient('a', {
+        acquisitionSource: 'instagram', acquisitionSourceOther: null,
+      }),
+      checkout('a'),
+    ]);
+    assert.equal(results[1].status, 'fulfilled');
+    const current = await state('a');
+    assert.equal(current.lock.exists, true);
+    assert.equal(
+      current.registration.acquisitionSource,
+      results[0].status === 'fulfilled' ? 'instagram' : 'facebook',
+    );
+  });
+
+  await t.test('success preserves attribution and confirmed Registration rejects updates', async () => {
+    await seedFixture({
+      registrations: [{
+        label: 'a', acquisitionSource: 'other', acquisitionSourceOther: 'LOCAL Event',
+      }],
+    });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const { payment } = await activate('a');
+    await fulfillSuccessfulCheckout(
+      stripeEvent('evt_acquisition_success', 'checkout.session.completed'),
+      paidSession(stripe, payment.providerCheckoutSessionId),
+    );
+    const current = await state('a');
+    assert.equal(current.registration.acquisitionSource, 'other');
+    assert.equal(current.registration.acquisitionSourceOther, 'LOCAL Event');
+    assert.equal(current.registration.registrationOrder, 1);
+    assert.equal(current.payments[0].amountCents, 500);
+    assert.deepEqual(
+      Object.fromEntries(Object.entries(current.roster[0]).filter(([key]) => key !== 'id')),
+      { displayName: 'Player a', registrationOrder: 1 },
+    );
+    await assert.rejects(updateAcquisitionAsClient('a', {
+      acquisitionSource: 'google', acquisitionSourceOther: null,
+    }));
+  });
+
+  await t.test('promo attribution remains independent of acquisition and price', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const now = Timestamp.now();
+    await db.collection('promoters').doc('promoter-nightflight').set({
+      name: 'Nightflight', status: 'active', createdAt: now, updatedAt: now,
+    });
+    await db.collection('promoCodes').doc('NIGHTFLIGHT').set({
+      promoterId: 'promoter-nightflight', status: 'active', createdAt: now, updatedAt: now,
+    });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const result = await checkout('a', REQUEST_IDS[0], 'NIGHTFLIGHT');
+    const current = await state('a');
+    assert.equal(current.registration.acquisitionSource, 'facebook');
+    assert.equal(current.registration.acquisitionSourceOther, null);
+    assert.equal(current.registration.promoCodeSnapshot, 'NIGHTFLIGHT');
+    assert.equal(current.registration.promoterIdSnapshot, 'promoter-nightflight');
+    assert.equal(current.payments.find(({ id }) => id === result.paymentId).amountCents, 500);
+  });
+
+  await t.test('another player cannot read acquisition attribution', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    await assert.rejects(withClient('b', (firestore) => getDoc(
+      doc(firestore, 'registrations', registrationId('a')),
+    )));
+  });
+
+  await t.test('LC1 legacy pending Registration can cancel without a lock', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const reference = db.collection('registrations').doc(registrationId('a'));
+    await reference.update({
+      acquisitionSource: FieldValue.delete(),
+      acquisitionSourceOther: FieldValue.delete(),
+    });
+    const before = (await reference.get()).data();
+    await cancelAsClient('a');
+    const after = (await reference.get()).data();
+
+    assert.equal(after.status, 'cancelled');
+    assert.ok(after.cancelledAt instanceof Timestamp);
+    assert.ok(after.updatedAt instanceof Timestamp);
+    assert.equal('acquisitionSource' in after, false);
+    assert.equal('acquisitionSourceOther' in after, false);
+    for (const [key, value] of Object.entries(before)) {
+      if (!['status', 'cancelledAt', 'updatedAt'].includes(key)) {
+        assert.deepEqual(after[key], value);
+      }
+    }
+  });
+
+  await t.test('LC2 legacy pending Registration cannot cancel with a lock', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const reference = db.collection('registrations').doc(registrationId('a'));
+    await reference.update({
+      acquisitionSource: FieldValue.delete(),
+      acquisitionSourceOther: FieldValue.delete(),
+    });
+    await db.collection('registrationCheckoutLocks').doc(registrationId('a')).set({
+      paymentId: 'legacy-payment',
+      registrationId: registrationId('a'),
+      updatedAt: Timestamp.now(),
+    });
+    await assert.rejects(cancelAsClient('a'));
+    assert.equal((await reference.get()).data().status, 'pending_payment');
+  });
+
+  await t.test('LC3 legacy cancellation cannot introduce acquisition or other changes', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const reference = db.collection('registrations').doc(registrationId('a'));
+    await reference.update({
+      acquisitionSource: FieldValue.delete(),
+      acquisitionSourceOther: FieldValue.delete(),
+    });
+
+    await assert.rejects(withClient('a', (firestore) => {
+      const timestamp = serverTimestamp();
+      return updateDoc(doc(firestore, 'registrations', registrationId('a')), {
+        status: 'cancelled',
+        cancelledAt: timestamp,
+        updatedAt: timestamp,
+        acquisitionSource: 'facebook',
+        acquisitionSourceOther: null,
+      });
+    }));
+    assert.equal((await reference.get()).data().status, 'pending_payment');
+  });
+
+  await t.test('legacy Registration cannot checkout or use acquisition update compatibility', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    await db.collection('registrations').doc(registrationId('a')).update({
+      acquisitionSource: FieldValue.delete(),
+      acquisitionSourceOther: FieldValue.delete(),
+    });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    await assert.rejects(checkout('a'));
+    await assert.rejects(updateAcquisitionAsClient('a', {
+      acquisitionSource: 'instagram', acquisitionSourceOther: null,
+    }));
+    const current = await state('a');
+    assert.equal(current.holds.length, 0);
+    assert.equal(current.payments.length, 0);
+    assert.equal(current.lock.exists, false);
   });
 });
 

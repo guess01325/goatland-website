@@ -31,6 +31,8 @@ type RegistrationData = {
   promoCodeId?: unknown;
   promoCodeSnapshot?: unknown;
   promoterIdSnapshot?: unknown;
+  acquisitionSource?: unknown;
+  acquisitionSourceOther?: unknown;
 };
 
 type OfferingData = {
@@ -59,6 +61,59 @@ type Attribution = {
   promoCodeSnapshot: string;
   promoterIdSnapshot: string;
 } | null;
+
+const ACQUISITION_SOURCES = new Set([
+  'facebook',
+  'instagram',
+  'tiktok',
+  'discord',
+  'google',
+  'friend_family',
+  'event',
+  'other',
+]);
+const ACQUISITION_SOURCE_OTHER_MAX_LENGTH = 100;
+
+type AcquisitionAttribution = {
+  acquisitionSource: string;
+  acquisitionSourceOther: string | null;
+};
+
+function validateAcquisitionAttribution(
+  registration: RegistrationData,
+): AcquisitionAttribution {
+  const { acquisitionSource, acquisitionSourceOther } = registration;
+
+  if (typeof acquisitionSource !== 'string' || !ACQUISITION_SOURCES.has(acquisitionSource)) {
+    throw new HttpsError('failed-precondition', 'Registration acquisition source is invalid.');
+  }
+
+  if (acquisitionSource !== 'other') {
+    if (acquisitionSourceOther !== null) {
+      throw new HttpsError('failed-precondition', 'Registration acquisition source is invalid.');
+    }
+    return { acquisitionSource, acquisitionSourceOther: null };
+  }
+
+  if (
+    typeof acquisitionSourceOther !== 'string'
+    || acquisitionSourceOther !== acquisitionSourceOther.trim()
+    || Array.from(acquisitionSourceOther).length === 0
+    || Array.from(acquisitionSourceOther).length > ACQUISITION_SOURCE_OTHER_MAX_LENGTH
+  ) {
+    throw new HttpsError('failed-precondition', 'Registration acquisition source is invalid.');
+  }
+
+  return { acquisitionSource, acquisitionSourceOther };
+}
+
+function sameAcquisitionAttribution(
+  first: AcquisitionAttribution,
+  second: AcquisitionAttribution,
+): boolean {
+  return first.acquisitionSource === second.acquisitionSource
+    && first.acquisitionSourceOther === second.acquisitionSourceOther;
+}
 
 function requireString(value: unknown, fieldName: string): string {
   if (typeof value !== 'string' || value.length === 0) {
@@ -412,6 +467,7 @@ export const createRegistrationCheckout = onCall(
 
     const registration = registrationSnapshot.data() as RegistrationData;
     const offeringId = validateRegistrationOwner(registration, playerId);
+    let acquisition = validateAcquisitionAttribution(registration);
     const leagueId = requireString(registration.leagueId, 'Registration league');
     const offeringRef = db.collection(collections.registrationOfferings).doc(offeringId);
     const leagueRef = db.collection(collections.leagues).doc(leagueId);
@@ -470,6 +526,7 @@ export const createRegistrationCheckout = onCall(
 
       const currentRegistration = currentRegistrationSnapshot.data() as RegistrationData;
       const currentOfferingId = validateRegistrationOwner(currentRegistration, playerId);
+      acquisition = validateAcquisitionAttribution(currentRegistration);
 
       if (
         currentOfferingId !== offeringId
@@ -653,6 +710,7 @@ export const createRegistrationCheckout = onCall(
 
         const currentRegistration = currentRegistrationSnapshot.data() as RegistrationData;
         const currentOfferingId = validateRegistrationOwner(currentRegistration, playerId);
+        const currentAcquisition = validateAcquisitionAttribution(currentRegistration);
         const currentSeatHold = currentSeatHoldSnapshot.data() as SeatHoldData;
 
         if (
@@ -672,6 +730,7 @@ export const createRegistrationCheckout = onCall(
         if (
           currentOfferingId !== offeringId
           || requireString(currentRegistration.leagueId, 'Registration league') !== leagueId
+          || !sameAcquisitionAttribution(currentAcquisition, acquisition)
           || currentSeatHold.paymentId !== paymentId
           || currentSeatHold.registrationId !== registrationId
           || currentSeatHold.registrationOfferingId !== offeringId

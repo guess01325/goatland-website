@@ -146,6 +146,8 @@ async function seedHold(label, {
     registrationOfferingId: OFFERING_ID,
     leagueId,
     status: registrationStatus,
+    acquisitionSource: 'facebook',
+    acquisitionSourceOther: null,
     registrationOrder,
     confirmedAt: registrationStatus === 'confirmed' ? now : null,
     createdAt: now,

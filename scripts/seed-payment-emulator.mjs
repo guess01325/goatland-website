@@ -234,6 +234,8 @@ if (PRINT_TOKEN) {
     competitionRulesAcceptedAt: now,
     refundPolicyVersionAccepted: 'payment-emulator-refund-policy-v1',
     refundPolicyAcceptedAt: now,
+    acquisitionSource: 'facebook',
+    acquisitionSourceOther: null,
     promoCodeId: null,
     promoCodeSnapshot: null,
     promoterIdSnapshot: null,

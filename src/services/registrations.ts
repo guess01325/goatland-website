@@ -4,7 +4,9 @@ import type {
   CreateRegistrationInput,
   Registration,
   RegistrationDocument,
+  AcquisitionAttribution,
 } from '../models/Registration';
+import { normalizeAcquisitionAttribution } from '../models/Registration';
 
 const REGISTRATION_ID_SEPARATOR = '|';
 
@@ -55,6 +57,7 @@ export async function createRegistration(input: CreateRegistrationInput): Promis
   const playerId = getAuthenticatedPlayerId();
   const reference = getRegistrationReference(playerId, input.registrationOfferingId);
   const timestamp = serverTimestamp();
+  const acquisition = normalizeAcquisitionAttribution(input);
 
   await setDoc(reference, {
     playerId,
@@ -65,6 +68,7 @@ export async function createRegistration(input: CreateRegistrationInput): Promis
     competitionRulesAcceptedAt: timestamp,
     refundPolicyVersionAccepted: input.refundPolicyVersionAccepted,
     refundPolicyAcceptedAt: timestamp,
+    ...acquisition,
     promoCodeId: null,
     promoCodeSnapshot: null,
     promoterIdSnapshot: null,
@@ -77,6 +81,19 @@ export async function createRegistration(input: CreateRegistrationInput): Promis
   });
 
   return reference.id;
+}
+
+export async function updateRegistrationAcquisitionSource(
+  registrationOfferingId: string,
+  input: AcquisitionAttribution,
+): Promise<void> {
+  const playerId = getAuthenticatedPlayerId();
+  const acquisition = normalizeAcquisitionAttribution(input);
+
+  await updateDoc(getRegistrationReference(playerId, registrationOfferingId), {
+    ...acquisition,
+    updatedAt: serverTimestamp(),
+  });
 }
 
 export async function cancelRegistration(

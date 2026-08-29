@@ -102,6 +102,8 @@ service cloud.firestore {
         'competitionRulesAcceptedAt',
         'refundPolicyVersionAccepted',
         'refundPolicyAcceptedAt',
+        'acquisitionSource',
+        'acquisitionSourceOther',
         'promoCodeId',
         'promoCodeSnapshot',
         'promoterIdSnapshot',
@@ -120,6 +122,24 @@ service cloud.firestore {
       && request.resource.data.competitionRulesVersionAccepted.size() > 0
       && request.resource.data.refundPolicyVersionAccepted is string
       && request.resource.data.refundPolicyVersionAccepted.size() > 0
+      && request.resource.data.acquisitionSource in [
+        'facebook',
+        'instagram',
+        'tiktok',
+        'discord',
+        'google',
+        'friend_family',
+        'event',
+        'other'
+      ]
+      && ((request.resource.data.acquisitionSource != 'other'
+          && request.resource.data.acquisitionSourceOther == null)
+        || (request.resource.data.acquisitionSource == 'other'
+          && request.resource.data.acquisitionSourceOther is string
+          && request.resource.data.acquisitionSourceOther.size() >= 1
+          && request.resource.data.acquisitionSourceOther.size() <= 100
+          && !request.resource.data.acquisitionSourceOther.matches('^\\s.*')
+          && !request.resource.data.acquisitionSourceOther.matches('.*\\s$')))
       && ((request.resource.data.promoCodeId == null
           && request.resource.data.promoCodeSnapshot == null
           && request.resource.data.promoterIdSnapshot == null)
@@ -140,6 +160,31 @@ service cloud.firestore {
         || request.resource.data.cancelledAt is timestamp)
       && (request.resource.data.registrationOrder == null
         || request.resource.data.registrationOrder is int);
+    }
+
+    function hasValidExistingAcquisitionData() {
+      return resource.data.keys().hasAll([
+        'acquisitionSource',
+        'acquisitionSourceOther'
+      ])
+      && resource.data.acquisitionSource in [
+        'facebook',
+        'instagram',
+        'tiktok',
+        'discord',
+        'google',
+        'friend_family',
+        'event',
+        'other'
+      ]
+      && ((resource.data.acquisitionSource != 'other'
+          && resource.data.acquisitionSourceOther == null)
+        || (resource.data.acquisitionSource == 'other'
+          && resource.data.acquisitionSourceOther is string
+          && resource.data.acquisitionSourceOther.size() >= 1
+          && resource.data.acquisitionSourceOther.size() <= 100
+          && !resource.data.acquisitionSourceOther.matches('^\\s.*')
+          && !resource.data.acquisitionSourceOther.matches('.*\\s$')));
     }
 
     function isOpenOffering(offeringId) {
@@ -193,16 +238,24 @@ service cloud.firestore {
         && !exists(
           /databases/$(database)/documents/registrationCheckoutLocks/$(registrationId)
         )
-        && hasValidRegistrationData()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'status',
-          'cancelledAt',
-          'updatedAt'
-        ])
         && resource.data.status == 'pending_payment'
-        && request.resource.data.status == 'cancelled'
-        && request.resource.data.cancelledAt == request.time
-        && request.resource.data.updatedAt == request.time;
+        && ((request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'cancelledAt',
+            'updatedAt'
+          ])
+          && request.resource.data.status == 'cancelled'
+          && request.resource.data.cancelledAt == request.time
+          && request.resource.data.updatedAt == request.time)
+        || (hasValidExistingAcquisitionData()
+          && hasValidRegistrationData()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'acquisitionSource',
+            'acquisitionSourceOther',
+            'updatedAt'
+          ])
+          && request.resource.data.status == 'pending_payment'
+          && request.resource.data.updatedAt == request.time));
       allow delete: if false;
     }
 
