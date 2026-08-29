@@ -255,7 +255,18 @@ service cloud.firestore {
             'updatedAt'
           ])
           && request.resource.data.status == 'pending_payment'
-          && request.resource.data.updatedAt == request.time));
+          && request.resource.data.updatedAt == request.time)
+        || (hasValidRegistrationData()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'leagueId',
+            'updatedAt'
+          ])
+          && request.resource.data.status == 'pending_payment'
+          && request.resource.data.updatedAt == request.time
+          && isOpenLeagueForOffering(
+            request.resource.data.leagueId,
+            resource.data.registrationOfferingId
+          )));
       allow delete: if false;
     }
 

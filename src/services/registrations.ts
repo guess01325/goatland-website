@@ -96,6 +96,18 @@ export async function updateRegistrationAcquisitionSource(
   });
 }
 
+export async function updateRegistrationLeague(
+  registrationOfferingId: string,
+  leagueId: string,
+): Promise<void> {
+  const playerId = getAuthenticatedPlayerId();
+
+  await updateDoc(getRegistrationReference(playerId, registrationOfferingId), {
+    leagueId,
+    updatedAt: serverTimestamp(),
+  });
+}
+
 export async function cancelRegistration(
   registrationOfferingId: string,
 ): Promise<void> {
