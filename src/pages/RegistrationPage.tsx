@@ -304,6 +304,28 @@ export function RegistrationPage() {
   }, [managedRegistration]);
 
   useEffect(() => {
+    if (!registrationIsLoaded || !selectedStart) return;
+
+    const storedAttempt = getCheckoutAttempt();
+    if (!storedAttempt) {
+      checkoutAttemptRef.current = null;
+      return;
+    }
+
+    if (
+      managedRegistration?.status === 'pending_payment'
+      && storedAttempt.registrationId === managedRegistration.id
+      && storedAttempt.registrationOfferingId === selectedStart.offering.id
+    ) {
+      checkoutAttemptRef.current = storedAttempt;
+      return;
+    }
+
+    clearCheckoutAttempt(storedAttempt.registrationId, storedAttempt.registrationOfferingId);
+    checkoutAttemptRef.current = null;
+  }, [managedRegistration, registrationIsLoaded, selectedStart]);
+
+  useEffect(() => {
     if (
       !managedRegistration
       || managedRegistration.status !== 'pending_payment'
@@ -804,7 +826,8 @@ export function RegistrationPage() {
         : '';
       const message = error instanceof Error ? error.message : '';
       const promoRejected = message.includes('PromoCode is invalid or unavailable');
-      const attemptEnded = code === 'already-exists'
+      const attemptEnded = message.includes('This checkout request has already been used')
+        || message.includes('Checkout request already exists')
         || message.includes('existing Checkout Session is no longer open');
 
       if (attemptEnded) {
