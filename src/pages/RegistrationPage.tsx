@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { LeagueRoster } from '../components/registration/LeagueRoster';
+import { RegistrationDetails } from '../components/registration/RegistrationDetails';
 import { SelectionCard } from '../components/registration/SelectionCard';
 import { PageHeader } from '../components/PageHeader';
 import { SectionHeading } from '../components/SectionHeading';
@@ -8,14 +9,19 @@ import type { Game } from '../models/Game';
 import type { League } from '../models/League';
 import type { LeagueStart } from '../models/LeagueStart';
 import type { PublicRosterEntry } from '../models/PublicRosterEntry';
-import type { Registration } from '../models/Registration';
+import type { AcquisitionAttribution, AcquisitionSource, Registration } from '../models/Registration';
+import { normalizeAcquisitionAttribution } from '../models/Registration';
 import type { RegistrationOffering } from '../models/RegistrationOffering';
 import type { Tier } from '../models/Tier';
 import { getRegistrationGames } from '../services/games';
 import { getLeagueStartsForGame } from '../services/leagueStarts';
 import { getLeaguesByRegistrationOffering, getPublicRoster } from '../services/leagues';
 import { getRegistrationOfferingsForLeagueStartAndTier } from '../services/registrationOfferings';
-import { getRegistration, updateRegistrationLeague } from '../services/registrations';
+import {
+  getRegistration,
+  updateRegistrationAcquisitionSource,
+  updateRegistrationLeague,
+} from '../services/registrations';
 import { getActiveTiers } from '../services/tiers';
 
 type StartOption = {
@@ -83,12 +89,21 @@ export function RegistrationPage() {
   const [registrationRetry, setRegistrationRetry] = useState(0);
   const [leagueSwitching, setLeagueSwitching] = useState(false);
   const [leagueSwitchError, setLeagueSwitchError] = useState('');
+  const [detailsOfferingId, setDetailsOfferingId] = useState<string | null>(null);
+  const [acquisitionSource, setAcquisitionSource] = useState<AcquisitionSource | ''>('');
+  const [acquisitionSourceOther, setAcquisitionSourceOther] = useState('');
+  const [acquisitionDirty, setAcquisitionDirty] = useState(false);
+  const [acquisitionSaving, setAcquisitionSaving] = useState(false);
+  const [acquisitionSaveError, setAcquisitionSaveError] = useState('');
+  const [acquisitionReloadPending, setAcquisitionReloadPending] = useState(false);
+  const [promoCode, setPromoCode] = useState('');
   const [roster, setRoster] = useState<PublicRosterEntry[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
   const [rosterError, setRosterError] = useState('');
   const [rosterRetry, setRosterRetry] = useState(0);
   const currentOfferingId = useRef<string | null>(null);
   const registrationLoadOfferingId = useRef<string | null>(null);
+  const initializedRegistrationId = useRef<string | null>(null);
 
   const gameId = searchParams.get('game');
   const tierId = searchParams.get('tier');
@@ -113,6 +128,52 @@ export function RegistrationPage() {
   const displayedLeague = registrationControlsLeague ? registrationLeague : (
     registrationIsLoaded && !managedRegistration ? selectedBrowsableLeague : null
   );
+  const promoLocked = Boolean(
+    managedRegistration
+    && (
+      managedRegistration.promoCodeId
+      || managedRegistration.promoCodeSnapshot
+      || managedRegistration.promoterIdSnapshot
+    )
+  );
+  const detailsAvailable = Boolean(
+    displayedLeague && (!managedRegistration || managedRegistration.status === 'pending_payment'),
+  );
+
+  useEffect(() => {
+    const nextOfferingId = selectedStart?.offering.id ?? null;
+    if (detailsOfferingId === nextOfferingId) return;
+
+    setDetailsOfferingId(nextOfferingId);
+    setAcquisitionSource('');
+    setAcquisitionSourceOther('');
+    setAcquisitionDirty(false);
+    setAcquisitionSaving(false);
+    setAcquisitionSaveError('');
+    setAcquisitionReloadPending(false);
+    setPromoCode('');
+    initializedRegistrationId.current = null;
+  }, [detailsOfferingId, selectedStart]);
+
+  useEffect(() => {
+    if (
+      !managedRegistration
+      || managedRegistration.status !== 'pending_payment'
+      || detailsOfferingId !== managedRegistration.registrationOfferingId
+    ) return;
+
+    if (
+      initializedRegistrationId.current !== managedRegistration.id
+      || acquisitionReloadPending
+      || !acquisitionDirty
+    ) {
+      setAcquisitionSource(managedRegistration.acquisitionSource);
+      setAcquisitionSourceOther(managedRegistration.acquisitionSourceOther ?? '');
+      setAcquisitionDirty(false);
+      setAcquisitionReloadPending(false);
+      initializedRegistrationId.current = managedRegistration.id;
+    }
+  }, [acquisitionDirty, acquisitionReloadPending, detailsOfferingId, managedRegistration]);
 
   const setPickerParams = useCallback((values: Partial<Record<QueryKey, string | null>>) => {
     const next = new URLSearchParams(searchParams);
@@ -393,6 +454,55 @@ export function RegistrationPage() {
     setRosterRetry((value) => value + 1);
   }, []);
 
+  const saveAcquisition = useCallback(async () => {
+    if (
+      !selectedStart
+      || managedRegistration?.status !== 'pending_payment'
+      || acquisitionSaving
+      || leagueSwitching
+    ) return;
+
+    let normalizedAcquisition: AcquisitionAttribution;
+    try {
+      normalizedAcquisition = normalizeAcquisitionAttribution({
+        acquisitionSource,
+        acquisitionSourceOther: acquisitionSource === 'other' ? acquisitionSourceOther : null,
+      });
+    } catch (error) {
+      setAcquisitionSaveError(
+        error instanceof Error ? error.message : 'Check your registration details and try again.',
+      );
+      return;
+    }
+
+    const offeringAtRequest = selectedStart.offering.id;
+    setAcquisitionSaving(true);
+    setAcquisitionSaveError('');
+    try {
+      await updateRegistrationAcquisitionSource(offeringAtRequest, normalizedAcquisition);
+      if (currentOfferingId.current !== offeringAtRequest) return;
+      setAcquisitionReloadPending(true);
+      refreshRegistrationState();
+    } catch {
+      if (currentOfferingId.current !== offeringAtRequest) return;
+      setAcquisitionSaveError(
+        'Your registration details could not be updated. Your registration may have changed or checkout may already be in progress.',
+      );
+      setAcquisitionReloadPending(true);
+      refreshRegistrationState();
+    } finally {
+      if (currentOfferingId.current === offeringAtRequest) setAcquisitionSaving(false);
+    }
+  }, [
+    acquisitionSaving,
+    acquisitionSource,
+    acquisitionSourceOther,
+    leagueSwitching,
+    managedRegistration,
+    refreshRegistrationState,
+    selectedStart,
+  ]);
+
   const switchLeague = useCallback(async (league: League) => {
     if (
       !selectedStart
@@ -400,6 +510,7 @@ export function RegistrationPage() {
       || league.status !== 'open'
       || league.id === managedRegistration.leagueId
       || leagueSwitching
+      || acquisitionSaving
     ) return;
 
     const offeringAtRequest = selectedStart.offering.id;
@@ -418,9 +529,15 @@ export function RegistrationPage() {
     } finally {
       if (currentOfferingId.current === offeringAtRequest) setLeagueSwitching(false);
     }
-  }, [leagueSwitching, managedRegistration, refreshRegistrationState, selectedStart]);
+  }, [
+    acquisitionSaving,
+    leagueSwitching,
+    managedRegistration,
+    refreshRegistrationState,
+    selectedStart,
+  ]);
 
-  const currentStep = displayedLeague ? 4 : selectedStart ? 4 : selectedTier ? 3 : selectedGame ? 2 : 1;
+  const currentStep = detailsAvailable ? 5 : selectedStart ? 4 : selectedTier ? 3 : selectedGame ? 2 : 1;
   const activeGames = useMemo(() => games.filter(({ status }) => status === 'active'), [games]);
   const comingSoonGames = useMemo(
     () => games.filter(({ status }) => status === 'coming_soon'),
@@ -438,7 +555,7 @@ export function RegistrationPage() {
       <section className="section registration-browser-section">
         <div className="container">
           <ol className="registration-steps" aria-label="Registration browsing progress">
-            {['Game', 'Tier', 'Start Date', 'League'].map((label, index) => (
+            {['Game', 'Tier', 'Start Date', 'League', 'Details'].map((label, index) => (
               <li
                 className={`${index + 1 === currentStep ? 'registration-steps__current ' : ''}${index + 1 < currentStep ? 'registration-steps__complete' : ''}`}
                 key={label}
@@ -607,6 +724,7 @@ export function RegistrationPage() {
                               || Boolean(registrationError)
                               || !registrationIsLoaded
                               || leagueSwitching
+                              || acquisitionSaving
                               || managedRegistration?.status === 'confirmed'
                               || managedRegistration?.status === 'cancelled'
                               || managedRegistration?.status === 'expired'
@@ -649,6 +767,35 @@ export function RegistrationPage() {
                   ) : null}
                 </PickerSection>
               ) : null}
+              {selectedStart
+                && detailsAvailable
+                && detailsOfferingId === selectedStart.offering.id
+                ? (
+                  <RegistrationDetails
+                    acquisitionSource={acquisitionSource}
+                    acquisitionSourceOther={acquisitionSourceOther}
+                    promoCode={promoCode}
+                    promoLocked={promoLocked}
+                    persisted={managedRegistration?.status === 'pending_payment'}
+                    dirty={acquisitionDirty}
+                    saving={acquisitionSaving}
+                    mutationBlocked={leagueSwitching || registrationLoading}
+                    saveError={acquisitionSaveError}
+                    onAcquisitionSourceChange={(source) => {
+                      setAcquisitionSource(source);
+                      if (source !== 'other') setAcquisitionSourceOther('');
+                      setAcquisitionDirty(true);
+                      setAcquisitionSaveError('');
+                    }}
+                    onAcquisitionSourceOtherChange={(detail) => {
+                      setAcquisitionSourceOther(detail);
+                      setAcquisitionDirty(true);
+                      setAcquisitionSaveError('');
+                    }}
+                    onPromoCodeChange={setPromoCode}
+                    onSave={() => void saveAcquisition()}
+                  />
+                ) : null}
             </>
           ) : null}
 
