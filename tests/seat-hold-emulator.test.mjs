@@ -384,6 +384,79 @@ async function seedOtherOfferingLeague(overrides = {}) {
 
 await Promise.all(['a', 'b', 'c'].map(createIdentity));
 
+test('Registration deterministic get rules RGET1-RGET7', async (t) => {
+  await t.test('RGET1 owner get of an absent Registration resolves as not found', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    await db.collection('registrations').doc(registrationId('a')).delete();
+
+    const snapshot = await withClient('a', (firestore) => getDoc(
+      doc(firestore, 'registrations', registrationId('a')),
+    ));
+    assert.equal(snapshot.exists(), false);
+  });
+
+  await t.test('RGET2 another player cannot get the owner\'s absent path', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    await db.collection('registrations').doc(registrationId('a')).delete();
+
+    await assert.rejects(withClient('b', (firestore) => getDoc(
+      doc(firestore, 'registrations', registrationId('a')),
+    )));
+  });
+
+  await t.test('RGET3 owner can get an existing Registration', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+
+    const snapshot = await withClient('a', (firestore) => getDoc(
+      doc(firestore, 'registrations', registrationId('a')),
+    ));
+    assert.equal(snapshot.exists(), true);
+    assert.equal(snapshot.data().playerId, identities.a.uid);
+  });
+
+  await t.test('RGET4 another player cannot get an existing Registration', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+
+    await assert.rejects(withClient('b', (firestore) => getDoc(
+      doc(firestore, 'registrations', registrationId('a')),
+    )));
+  });
+
+  await t.test('RGET5 Registration list access remains denied', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+
+    await assert.rejects(withClient('a', (firestore) => getDocs(
+      collection(firestore, 'registrations'),
+    )));
+  });
+
+  await t.test('RGET6 malformed deterministic Registration IDs are denied', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+
+    for (const malformedId of [
+      identities.a.uid,
+      `${identities.a.uid}|`,
+      `|${OFFERING_ID}`,
+      `${identities.a.uid}|${OFFERING_ID}|extra`,
+    ]) {
+      await assert.rejects(withClient('a', (firestore) => getDoc(
+        doc(firestore, 'registrations', malformedId),
+      )));
+    }
+  });
+
+  await t.test('RGET7 owner-looking path with mismatched stored player is denied', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    await db.collection('registrations').doc(registrationId('a')).update({
+      playerId: identities.b.uid,
+    });
+
+    await assert.rejects(withClient('a', (firestore) => getDoc(
+      doc(firestore, 'registrations', registrationId('a')),
+    )));
+  });
+});
+
 test('Registration policy authority P1-P20', async (t) => {
   async function prepareClientCreation({ league1 = {}, offering = {} } = {}) {
     await seedFixture({ league1, registrations: [{ label: 'a' }] });

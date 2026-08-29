@@ -204,9 +204,16 @@ service cloud.firestore {
         && league.data.status == 'open';
     }
 
+    function isOwnedRegistrationId(registrationId) {
+      return request.auth != null
+        && registrationId.matches('[^|/]+[|][^|/]+')
+        && registrationId.replace('[|][^|/]+$', '') == request.auth.uid;
+    }
+
     match /registrations/{registrationId} {
-      allow get: if request.auth != null
-        && resource.data.playerId == request.auth.uid;
+      allow get: if isOwnedRegistrationId(registrationId)
+        && (!exists(/databases/$(database)/documents/registrations/$(registrationId))
+          || resource.data.playerId == request.auth.uid);
       allow list: if false;
       allow create: if request.auth != null
         && hasValidRegistrationData()
