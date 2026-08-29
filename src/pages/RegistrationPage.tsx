@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { LeagueRoster } from '../components/registration/LeagueRoster';
 import { SelectionCard } from '../components/registration/SelectionCard';
@@ -8,12 +8,14 @@ import type { Game } from '../models/Game';
 import type { League } from '../models/League';
 import type { LeagueStart } from '../models/LeagueStart';
 import type { PublicRosterEntry } from '../models/PublicRosterEntry';
+import type { Registration } from '../models/Registration';
 import type { RegistrationOffering } from '../models/RegistrationOffering';
 import type { Tier } from '../models/Tier';
 import { getRegistrationGames } from '../services/games';
 import { getLeagueStartsForGame } from '../services/leagueStarts';
 import { getLeaguesByRegistrationOffering, getPublicRoster } from '../services/leagues';
 import { getRegistrationOfferingsForLeagueStartAndTier } from '../services/registrationOfferings';
+import { getRegistration, updateRegistrationLeague } from '../services/registrations';
 import { getActiveTiers } from '../services/tiers';
 
 type StartOption = {
@@ -73,10 +75,20 @@ export function RegistrationPage() {
   const [leaguesError, setLeaguesError] = useState('');
   const [leaguesRetry, setLeaguesRetry] = useState(0);
   const [leaguesLoadedFor, setLeaguesLoadedFor] = useState('');
+  const [registration, setRegistration] = useState<Registration | null>(null);
+  const [registrationLoading, setRegistrationLoading] = useState(false);
+  const [registrationRefreshing, setRegistrationRefreshing] = useState(false);
+  const [registrationError, setRegistrationError] = useState('');
+  const [registrationLoadedFor, setRegistrationLoadedFor] = useState('');
+  const [registrationRetry, setRegistrationRetry] = useState(0);
+  const [leagueSwitching, setLeagueSwitching] = useState(false);
+  const [leagueSwitchError, setLeagueSwitchError] = useState('');
   const [roster, setRoster] = useState<PublicRosterEntry[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
   const [rosterError, setRosterError] = useState('');
   const [rosterRetry, setRosterRetry] = useState(0);
+  const currentOfferingId = useRef<string | null>(null);
+  const registrationLoadOfferingId = useRef<string | null>(null);
 
   const gameId = searchParams.get('game');
   const tierId = searchParams.get('tier');
@@ -86,8 +98,21 @@ export function RegistrationPage() {
   const selectedGame = games.find((game) => game.id === gameId && game.status === 'active') ?? null;
   const selectedTier = tiers.find((tier) => tier.id === tierId) ?? null;
   const selectedStart = startOptions.find((option) => option.offering.id === offeringId) ?? null;
-  const selectedLeague =
+  currentOfferingId.current = selectedStart?.offering.id ?? null;
+  const selectedBrowsableLeague =
     leagues.find((league) => league.id === leagueId && league.status === 'open') ?? null;
+  const registrationIsLoaded = Boolean(
+    selectedStart && registrationLoadedFor === selectedStart.offering.id,
+  );
+  const managedRegistration = registrationIsLoaded ? registration : null;
+  const registrationLeague = managedRegistration
+    ? leagues.find((league) => league.id === managedRegistration.leagueId) ?? null
+    : null;
+  const registrationControlsLeague = managedRegistration?.status === 'pending_payment'
+    || managedRegistration?.status === 'confirmed';
+  const displayedLeague = registrationControlsLeague ? registrationLeague : (
+    registrationIsLoaded && !managedRegistration ? selectedBrowsableLeague : null
+  );
 
   const setPickerParams = useCallback((values: Partial<Record<QueryKey, string | null>>) => {
     const next = new URLSearchParams(searchParams);
@@ -244,13 +269,61 @@ export function RegistrationPage() {
   }, [leaguesRetry, selectedStart]);
 
   useEffect(() => {
+    let current = true;
+    const nextOfferingId = selectedStart?.offering.id ?? null;
+    const offeringChanged = registrationLoadOfferingId.current !== nextOfferingId;
+    registrationLoadOfferingId.current = nextOfferingId;
+    setRegistration(null);
+    setRegistrationError('');
+    setRegistrationLoadedFor('');
+    if (offeringChanged) {
+      setLeagueSwitchError('');
+      setLeagueSwitching(false);
+      setRegistrationRefreshing(false);
+    }
+
+    if (!nextOfferingId) {
+      setRegistrationLoading(false);
+      setRegistrationRefreshing(false);
+      return () => {
+        current = false;
+      };
+    }
+
+    setRegistrationLoading(true);
+    getRegistration(nextOfferingId)
+      .then((nextRegistration) => {
+        if (current) setRegistration(nextRegistration);
+      })
+      .catch(() => {
+        if (current) {
+          setRegistrationError('We could not check your registration. Please try again.');
+        }
+      })
+      .finally(() => {
+        if (current) {
+          setRegistrationLoading(false);
+          setRegistrationRefreshing(false);
+          setRegistrationLoadedFor(nextOfferingId);
+        }
+      });
+
+    return () => {
+      current = false;
+    };
+  }, [registrationRetry, selectedStart]);
+
+  useEffect(() => {
     if (
       selectedStart
       && leaguesLoadedFor === selectedStart.offering.id
       && !leaguesLoading
       && !leaguesError
+      && registrationIsLoaded
+      && !registrationError
+      && !managedRegistration
       && leagueId
-      && !selectedLeague
+      && !selectedBrowsableLeague
     ) {
       setPickerParams({ league: null });
     }
@@ -259,8 +332,30 @@ export function RegistrationPage() {
     leaguesError,
     leaguesLoadedFor,
     leaguesLoading,
-    selectedLeague,
+    managedRegistration,
+    registrationError,
+    registrationIsLoaded,
+    selectedBrowsableLeague,
     selectedStart,
+    setPickerParams,
+  ]);
+
+  useEffect(() => {
+    if (!registrationIsLoaded || !managedRegistration) return;
+
+    if (registrationControlsLeague) {
+      if (leagueId !== managedRegistration.leagueId) {
+        setPickerParams({ league: managedRegistration.leagueId });
+      }
+      return;
+    }
+
+    if (leagueId) setPickerParams({ league: null });
+  }, [
+    leagueId,
+    managedRegistration,
+    registrationControlsLeague,
+    registrationIsLoaded,
     setPickerParams,
   ]);
 
@@ -268,14 +363,14 @@ export function RegistrationPage() {
     let current = true;
     setRoster([]);
     setRosterError('');
-    if (!selectedLeague) {
+    if (!displayedLeague) {
       setRosterLoading(false);
       return () => {
         current = false;
       };
     }
     setRosterLoading(true);
-    getPublicRoster(selectedLeague.id)
+    getPublicRoster(displayedLeague.id)
       .then((entries) => {
         if (current) setRoster(entries);
       })
@@ -288,9 +383,44 @@ export function RegistrationPage() {
     return () => {
       current = false;
     };
-  }, [rosterRetry, selectedLeague]);
+  }, [displayedLeague, rosterRetry]);
 
-  const currentStep = selectedLeague ? 4 : selectedStart ? 4 : selectedTier ? 3 : selectedGame ? 2 : 1;
+  const refreshRegistrationState = useCallback(() => {
+    setRegistrationRefreshing(true);
+    setRegistrationRetry((value) => value + 1);
+    setLeaguesRetry((value) => value + 1);
+    setRoster([]);
+    setRosterRetry((value) => value + 1);
+  }, []);
+
+  const switchLeague = useCallback(async (league: League) => {
+    if (
+      !selectedStart
+      || managedRegistration?.status !== 'pending_payment'
+      || league.status !== 'open'
+      || league.id === managedRegistration.leagueId
+      || leagueSwitching
+    ) return;
+
+    const offeringAtRequest = selectedStart.offering.id;
+    setLeagueSwitching(true);
+    setLeagueSwitchError('');
+    try {
+      await updateRegistrationLeague(offeringAtRequest, league.id);
+      if (currentOfferingId.current !== offeringAtRequest) return;
+      refreshRegistrationState();
+    } catch {
+      if (currentOfferingId.current !== offeringAtRequest) return;
+      setLeagueSwitchError(
+        'Your League selection could not be changed. Your registration may have changed or checkout may already be in progress.',
+      );
+      refreshRegistrationState();
+    } finally {
+      if (currentOfferingId.current === offeringAtRequest) setLeagueSwitching(false);
+    }
+  }, [leagueSwitching, managedRegistration, refreshRegistrationState, selectedStart]);
+
+  const currentStep = displayedLeague ? 4 : selectedStart ? 4 : selectedTier ? 3 : selectedGame ? 2 : 1;
   const activeGames = useMemo(() => games.filter(({ status }) => status === 'active'), [games]);
   const comingSoonGames = useMemo(
     () => games.filter(({ status }) => status === 'coming_soon'),
@@ -411,6 +541,36 @@ export function RegistrationPage() {
                   title="Choose a League"
                   description={`${formatStartDate(selectedStart.leagueStart)} · ${selectedTier?.name}`}
                 >
+                  {registrationLoading ? (
+                    <LoadingState>
+                      {registrationRefreshing ? 'Refreshing registration…' : 'Checking your registration…'}
+                    </LoadingState>
+                  ) : null}
+                  {!registrationLoading && registrationError ? (
+                    <ErrorState
+                      message={registrationError}
+                      onRetry={() => {
+                        setRegistrationRefreshing(true);
+                        setRegistrationRetry((value) => value + 1);
+                      }}
+                    />
+                  ) : null}
+                  {leagueSwitching ? <LoadingState>Changing League…</LoadingState> : null}
+                  {leagueSwitchError ? (
+                    <div className="registration-inline-state registration-inline-state--error" role="alert">
+                      <p>{leagueSwitchError}</p>
+                      {registrationLoading ? <p>Refreshing registration…</p> : null}
+                    </div>
+                  ) : null}
+                  {registrationIsLoaded && managedRegistration ? (
+                    <RegistrationState
+                      registration={managedRegistration}
+                      league={registrationLeague}
+                      game={selectedGame}
+                      tier={selectedTier}
+                      start={selectedStart.leagueStart}
+                    />
+                  ) : null}
                   {leaguesLoading ? <LoadingState>Loading Leagues…</LoadingState> : null}
                   {!leaguesLoading && leaguesError ? (
                     <ErrorState message={leaguesError} onRetry={() => setLeaguesRetry((value) => value + 1)} />
@@ -429,21 +589,46 @@ export function RegistrationPage() {
                             description={(
                               <>
                                 {league.confirmedCount} of {league.capacity} confirmed
+                                {managedRegistration?.leagueId === league.id ? (
+                                  <small>
+                                    {managedRegistration.status === 'pending_payment'
+                                      ? 'Current Registration League'
+                                      : 'Registered League'}
+                                  </small>
+                                ) : null}
                                 <small>Availability checked at payment</small>
                               </>
                             )}
-                            selected={selectedLeague?.id === league.id}
-                            disabled={league.status !== 'open'}
-                            onSelect={() => setPickerParams({ league: league.id })}
+                            selected={displayedLeague?.id === league.id}
+                            selectedLabel={managedRegistration ? 'Current League' : 'Selected'}
+                            busy={leagueSwitching && managedRegistration?.leagueId !== league.id}
+                            disabled={
+                              registrationLoading
+                              || Boolean(registrationError)
+                              || !registrationIsLoaded
+                              || leagueSwitching
+                              || managedRegistration?.status === 'confirmed'
+                              || managedRegistration?.status === 'cancelled'
+                              || managedRegistration?.status === 'expired'
+                              || league.status !== 'open'
+                              || managedRegistration?.leagueId === league.id
+                            }
+                            onSelect={() => {
+                              if (managedRegistration?.status === 'pending_payment') {
+                                void switchLeague(league);
+                              } else if (!managedRegistration) {
+                                setPickerParams({ league: league.id });
+                              }
+                            }}
                           />
                         ))}
                         {!leagues.some(({ status }) => status === 'open') ? (
                           <EmptyState>No open Leagues are currently available.</EmptyState>
                         ) : null}
                       </div>
-                      {selectedLeague ? (
+                      {displayedLeague ? (
                         <LeagueRoster
-                          leagueLabel={`League ${selectedLeague.leagueNumber}`}
+                          leagueLabel={`League ${displayedLeague.leagueNumber}`}
                           entries={roster}
                           loading={rosterLoading}
                           error={rosterError}
@@ -452,8 +637,12 @@ export function RegistrationPage() {
                       ) : (
                         <aside className="preview-card registration-roster registration-roster--empty">
                           <p className="eyebrow">Confirmed Roster</p>
-                          <h2>Select a League</h2>
-                          <p>Choose an open League to view its confirmed players.</p>
+                          <h2>{registrationControlsLeague ? 'Roster unavailable' : 'Select a League'}</h2>
+                          <p>
+                            {registrationControlsLeague
+                              ? 'Reload the page or contact GOATLAND for help.'
+                              : 'Choose an open League to view its confirmed players.'}
+                          </p>
                         </aside>
                       )}
                     </div>
@@ -507,6 +696,54 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
       <button className="button-link button-link--ghost" type="button" onClick={onRetry}>
         Try again
       </button>
+    </div>
+  );
+}
+
+type RegistrationStateProps = {
+  registration: Registration;
+  league: League | null;
+  game: Game | null;
+  tier: Tier | null;
+  start: LeagueStart;
+};
+
+function RegistrationState({ registration, league, game, tier, start }: RegistrationStateProps) {
+  if (registration.status === 'cancelled') {
+    return (
+      <div className="registration-management-state" role="status">
+        <p className="eyebrow">Registration cancelled</p>
+        <h2>This registration has been cancelled.</h2>
+        <p>Contact GOATLAND if you need help registering for this League Start Date again.</p>
+      </div>
+    );
+  }
+
+  if (registration.status === 'expired') {
+    return (
+      <div className="registration-management-state" role="status">
+        <p className="eyebrow">Registration unavailable</p>
+        <h2>This registration can’t currently be continued.</h2>
+        <p>Reload the page or contact GOATLAND for help.</p>
+      </div>
+    );
+  }
+
+  const confirmed = registration.status === 'confirmed';
+  return (
+    <div className="registration-management-state" role="status">
+      <p className="eyebrow">{confirmed ? "You're registered" : 'Current League'}</p>
+      <h2>{league ? `League ${league.leagueNumber}` : 'League details unavailable'}</h2>
+      {confirmed ? (
+        <p>
+          {game?.name}{game?.edition ? ` ${game.edition}` : ''} · {tier?.name} · {formatStartDate(start)}
+        </p>
+      ) : null}
+      {!league ? <p>Reload the page or contact GOATLAND for help.</p> : null}
+      {!confirmed && league && league.status !== 'open' ? (
+        <p>This League is no longer available for a new checkout. Choose another open League to change your selection.</p>
+      ) : null}
+      {confirmed ? <p>Your League selection is confirmed and cannot be changed.</p> : null}
     </div>
   );
 }

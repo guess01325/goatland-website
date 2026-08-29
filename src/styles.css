@@ -2627,6 +2627,24 @@ p {
   margin-top: var(--space-3);
 }
 
+.registration-management-state {
+  margin: 1rem 0;
+  padding: 1rem 1.15rem;
+  border: 1px solid rgba(202, 164, 73, 0.38);
+  border-radius: 0.75rem;
+  background: rgba(202, 164, 73, 0.08);
+}
+
+.registration-management-state h2,
+.registration-management-state p {
+  margin: 0;
+}
+
+.registration-management-state p + p,
+.registration-management-state h2 + p {
+  margin-top: 0.45rem;
+}
+
 .registration-checkout-notice {
   margin-top: var(--space-6);
 }
