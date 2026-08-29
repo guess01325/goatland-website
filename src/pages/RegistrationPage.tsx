@@ -79,6 +79,62 @@ function isDisplaySelectableOffering(offering: RegistrationOffering, now: number
     && now < offering.registrationClosesAt.toMillis();
 }
 
+type CreateEligibility = {
+  eligible: boolean;
+  reason: string;
+};
+
+function getCreateEligibility({
+  selectedStart,
+  selectedLeague,
+  registrationIsLoaded,
+  managedRegistration,
+  acquisition,
+  localPromoValid,
+  competitionRulesAccepted,
+  refundPolicyAccepted,
+  registrationCreating,
+}: {
+  selectedStart: StartOption | null;
+  selectedLeague: League | null;
+  registrationIsLoaded: boolean;
+  managedRegistration: Registration | null;
+  acquisition: AcquisitionAttribution | null;
+  localPromoValid: boolean;
+  competitionRulesAccepted: boolean;
+  refundPolicyAccepted: boolean;
+  registrationCreating: boolean;
+}): CreateEligibility {
+  if (registrationCreating) return { eligible: false, reason: 'Registration creation is already in progress.' };
+  if (!selectedStart) return { eligible: false, reason: 'Please select a League Start Date.' };
+  if (!selectedLeague || selectedLeague.status !== 'open') {
+    return { eligible: false, reason: 'Please select an available League.' };
+  }
+  if (!registrationIsLoaded) {
+    return { eligible: false, reason: 'Please wait while we check your registration status.' };
+  }
+  if (managedRegistration) {
+    return { eligible: false, reason: 'Your existing Registration must finish loading before continuing.' };
+  }
+  if (!acquisition) {
+    return { eligible: false, reason: 'Please complete your registration details before continuing.' };
+  }
+  if (!localPromoValid) {
+    return { eligible: false, reason: 'Please correct or remove the promo code before continuing.' };
+  }
+  if (!competitionRulesAccepted || !refundPolicyAccepted) {
+    return { eligible: false, reason: 'Please accept both registration policies.' };
+  }
+  return { eligible: true, reason: '' };
+}
+
+function getFirebaseErrorCode(error: unknown): string {
+  const code = typeof (error as { code?: unknown })?.code === 'string'
+    ? (error as { code: string }).code
+    : '';
+  return code.replace(/^firestore\//, '');
+}
+
 export function RegistrationPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [games, setGames] = useState<Game[]>([]);
@@ -130,6 +186,7 @@ export function RegistrationPage() {
   const checkoutStartingRef = useRef(false);
   const checkoutAttemptRef = useRef<CheckoutAttempt | null>(null);
   const currentRegistrationId = useRef<string | null>(null);
+  const registrationCreatingRef = useRef(false);
 
   const gameId = searchParams.get('game');
   const tierId = searchParams.get('tier');
@@ -183,6 +240,17 @@ export function RegistrationPage() {
     && normalizedLocalAcquisition
     && localPromoValid,
   );
+  const createEligibility = getCreateEligibility({
+    selectedStart,
+    selectedLeague: selectedBrowsableLeague,
+    registrationIsLoaded,
+    managedRegistration,
+    acquisition: normalizedLocalAcquisition,
+    localPromoValid,
+    competitionRulesAccepted,
+    refundPolicyAccepted,
+    registrationCreating,
+  });
   const policiesCurrent = Boolean(
     managedRegistration
     && managedRegistration.competitionRulesVersionAccepted === CURRENT_COMPETITION_RULES_VERSION
@@ -597,43 +665,59 @@ export function RegistrationPage() {
   ]);
 
   const createPendingRegistration = useCallback(async () => {
-    if (
-      !selectedStart
-      || !selectedBrowsableLeague
-      || selectedBrowsableLeague.status !== 'open'
-      || !registrationIsLoaded
-      || managedRegistration
-      || !normalizedLocalAcquisition
-      || !localPromoValid
-      || !competitionRulesAccepted
-      || !refundPolicyAccepted
-      || registrationCreating
-    ) return;
+    const eligibility = getCreateEligibility({
+      selectedStart,
+      selectedLeague: selectedBrowsableLeague,
+      registrationIsLoaded,
+      managedRegistration,
+      acquisition: normalizedLocalAcquisition,
+      localPromoValid,
+      competitionRulesAccepted,
+      refundPolicyAccepted,
+      registrationCreating: registrationCreating || registrationCreatingRef.current,
+    });
+    if (!eligibility.eligible) {
+      setRegistrationCreateError(eligibility.reason);
+      return;
+    }
 
-    const offeringAtRequest = selectedStart.offering.id;
+    const offeringAtRequest = selectedStart!.offering.id;
+    registrationCreatingRef.current = true;
     setRegistrationCreating(true);
     setRegistrationCreateError('');
     setRegistrationCreateNotice('');
     try {
+      if (import.meta.env.DEV) console.info('Invoking createRegistration.');
       await createRegistration({
         registrationOfferingId: offeringAtRequest,
-        leagueId: selectedBrowsableLeague.id,
+        leagueId: selectedBrowsableLeague!.id,
         competitionRulesVersionAccepted: CURRENT_COMPETITION_RULES_VERSION,
         refundPolicyVersionAccepted: CURRENT_REFUND_POLICY_VERSION,
-        ...normalizedLocalAcquisition,
+        ...normalizedLocalAcquisition!,
       });
       if (currentOfferingId.current !== offeringAtRequest) return;
       setRegistrationCreateNotice('Registration created.');
       setAcquisitionReloadPending(true);
       refreshRegistrationState();
-    } catch {
+    } catch (error) {
       if (currentOfferingId.current !== offeringAtRequest) return;
-      setRegistrationCreateError(
-        'Your registration could not be created. Availability or registration details may have changed. Refreshing your registration status.',
-      );
+      const code = getFirebaseErrorCode(error);
+      if (import.meta.env.DEV) console.error('Registration creation failed.', { code: code || 'unknown' });
+      if (code === 'permission-denied' || code === 'failed-precondition') {
+        setRegistrationCreateError(
+          'Your registration could not be created because availability or registration details changed. Please review them and try again.',
+        );
+      } else if (code === 'unavailable' || code === 'network-request-failed') {
+        setRegistrationCreateError(
+          'Registration is temporarily unavailable. Check your connection and try again.',
+        );
+      } else {
+        setRegistrationCreateError('Your registration could not be created. Please try again.');
+      }
       refreshRegistrationState();
       setStartsRetry((value) => value + 1);
     } finally {
+      registrationCreatingRef.current = false;
       if (currentOfferingId.current === offeringAtRequest) setRegistrationCreating(false);
     }
   }, [
@@ -1033,6 +1117,8 @@ export function RegistrationPage() {
                     competitionAccepted={competitionRulesAccepted}
                     refundAccepted={refundPolicyAccepted}
                     creating={registrationCreating}
+                    createEligible={createEligibility.eligible}
+                    createIneligibleReason={createEligibility.reason}
                     createError={registrationCreateError}
                     onCompetitionAcceptedChange={(accepted) => {
                       setCompetitionRulesAccepted(accepted);

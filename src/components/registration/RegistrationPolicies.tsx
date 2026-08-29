@@ -9,6 +9,8 @@ type RegistrationPoliciesProps = {
   competitionAccepted: boolean;
   refundAccepted: boolean;
   creating: boolean;
+  createEligible: boolean;
+  createIneligibleReason: string;
   createError: string;
   onCompetitionAcceptedChange: (accepted: boolean) => void;
   onRefundAcceptedChange: (accepted: boolean) => void;
@@ -19,6 +21,8 @@ export function RegistrationPolicies({
   competitionAccepted,
   refundAccepted,
   creating,
+  createEligible,
+  createIneligibleReason,
   createError,
   onCompetitionAcceptedChange,
   onRefundAcceptedChange,
@@ -41,9 +45,12 @@ export function RegistrationPolicies({
           <span>I accept the <Link to={`/rules#${REFUND_POLICY_ANCHOR}`} target="_blank">Refund Policy</Link></span>
         </label>
       </div>
-      <button className="button-link" type="button" aria-busy={creating || undefined} disabled={!competitionAccepted || !refundAccepted || creating} onClick={onCreate}>
+      <button className="button-link" type="button" aria-busy={creating || undefined} disabled={!createEligible} onClick={onCreate}>
         {creating ? 'Creating registration…' : 'Create Registration'}
       </button>
+      {!createEligible && !creating && createIneligibleReason ? (
+        <p className="registration-details__status">{createIneligibleReason}</p>
+      ) : null}
       {createError ? <p className="registration-field-error" role="alert">{createError}</p> : null}
     </section>
   );
