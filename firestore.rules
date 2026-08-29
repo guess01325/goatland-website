@@ -74,6 +74,11 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    match /leagues/{leagueId} {
+      allow read: if true;
+      allow create, update, delete: if false;
+    }
+
     match /promoters/{promoterId} {
       allow read, create, update, delete: if false;
     }
@@ -86,6 +91,7 @@ service cloud.firestore {
       return request.resource.data.keys().hasOnly([
         'playerId',
         'registrationOfferingId',
+        'leagueId',
         'status',
         'competitionRulesVersionAccepted',
         'competitionRulesAcceptedAt',
@@ -103,6 +109,8 @@ service cloud.firestore {
       ])
       && request.resource.data.playerId is string
       && request.resource.data.registrationOfferingId is string
+      && request.resource.data.leagueId is string
+      && request.resource.data.leagueId.size() > 0
       && request.resource.data.competitionRulesVersionAccepted is string
       && request.resource.data.competitionRulesVersionAccepted.size() > 0
       && request.resource.data.refundPolicyVersionAccepted is string
@@ -139,6 +147,13 @@ service cloud.firestore {
         && offering.data.registrationClosesAt >= request.time;
     }
 
+    function isOpenLeagueForOffering(leagueId, offeringId) {
+      let league = get(/databases/$(database)/documents/leagues/$(leagueId));
+      return exists(/databases/$(database)/documents/leagues/$(leagueId))
+        && league.data.registrationOfferingId == offeringId
+        && league.data.status == 'open';
+    }
+
     match /registrations/{registrationId} {
       allow get: if request.auth != null
         && resource.data.playerId == request.auth.uid;
@@ -152,6 +167,10 @@ service cloud.firestore {
           + request.resource.data.registrationOfferingId
         && exists(/databases/$(database)/documents/players/$(request.auth.uid))
         && isOpenOffering(request.resource.data.registrationOfferingId)
+        && isOpenLeagueForOffering(
+          request.resource.data.leagueId,
+          request.resource.data.registrationOfferingId
+        )
         && request.resource.data.status == 'pending_payment'
         && request.resource.data.promoCodeId == null
         && request.resource.data.promoCodeSnapshot == null
@@ -180,10 +199,6 @@ service cloud.firestore {
     }
 
     match /payments/{paymentId} {
-      allow read, create, update, delete: if false;
-    }
-
-    match /registrationOfferingRegistrationCounters/{offeringId} {
       allow read, create, update, delete: if false;
     }
 

@@ -13,11 +13,11 @@ export const db = getFirestore();
 export const collections = {
   payments: 'payments',
   players: 'players',
+  leagues: 'leagues',
   promoCodes: 'promoCodes',
   promoters: 'promoters',
   registrations: 'registrations',
   registrationOfferings: 'registrationOfferings',
-  registrationCounters: 'registrationOfferingRegistrationCounters',
   registrationCheckoutLocks: 'registrationCheckoutLocks',
   stripeWebhookEvents: 'stripeWebhookEvents',
 } as const;

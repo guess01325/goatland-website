@@ -9,6 +9,8 @@ const GAME_ID = 'madden-27';
 const TIER_ID = 'tier-1';
 const LEAGUE_START_ID = 'payment-test-league-start';
 const OFFERING_ID = `${LEAGUE_START_ID}__${TIER_ID}`;
+const LEAGUE_1_ID = `${OFFERING_ID}__league-1`;
+const LEAGUE_2_ID = `${OFFERING_ID}__league-2`;
 const PRINT_TOKEN = process.argv.includes('--print-token');
 
 function requireLocalEmulator(name, value, expectedPort) {
@@ -199,9 +201,34 @@ if (PRINT_TOKEN) {
     updatedAt: now,
   });
 
+  await firestore.collection('leagues').doc(LEAGUE_1_ID).set({
+    registrationOfferingId: OFFERING_ID,
+    leagueNumber: 1,
+    capacity: 16,
+    status: 'open',
+    confirmedCount: 0,
+    activeHoldCount: 0,
+    lastAssignedRegistrationOrder: 0,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await firestore.collection('leagues').doc(LEAGUE_2_ID).set({
+    registrationOfferingId: OFFERING_ID,
+    leagueNumber: 2,
+    capacity: 16,
+    status: 'open',
+    confirmedCount: 0,
+    activeHoldCount: 0,
+    lastAssignedRegistrationOrder: 0,
+    createdAt: now,
+    updatedAt: now,
+  });
+
   await firestore.collection('registrations').doc(registrationId).set({
     playerId: auth.localId,
     registrationOfferingId: OFFERING_ID,
+    leagueId: LEAGUE_1_ID,
     status: 'pending_payment',
     competitionRulesVersionAccepted: 'payment-emulator-competition-rules-v1',
     competitionRulesAcceptedAt: now,

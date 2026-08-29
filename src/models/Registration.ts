@@ -13,6 +13,7 @@ export type Registration = {
   id: string;
   playerId: string;
   registrationOfferingId: string;
+  leagueId: string;
   status: RegistrationStatus;
   competitionRulesVersionAccepted: string;
   competitionRulesAcceptedAt: Timestamp;
@@ -34,6 +35,7 @@ export type RegistrationDocument = Omit<Registration, 'id'>;
 export type CreateRegistrationInput = Pick<
   Registration,
   | 'registrationOfferingId'
+  | 'leagueId'
   | 'competitionRulesVersionAccepted'
   | 'refundPolicyVersionAccepted'
 >;

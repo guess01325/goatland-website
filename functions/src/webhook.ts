@@ -16,9 +16,17 @@ type PaymentData = {
 
 type RegistrationData = {
   registrationOfferingId?: unknown;
+  leagueId?: unknown;
   status?: unknown;
   registrationOrder?: unknown;
   confirmedAt?: unknown;
+};
+
+type LeagueData = {
+  registrationOfferingId?: unknown;
+  confirmedCount?: unknown;
+  activeHoldCount?: unknown;
+  lastAssignedRegistrationOrder?: unknown;
 };
 
 function requireMetadata(session: Stripe.Checkout.Session): {
@@ -91,10 +99,27 @@ async function fulfillSuccessfulCheckout(
       throw new Error('Registration offering relationship is invalid.');
     }
 
-    const counterRef = db
-      .collection(collections.registrationCounters)
+    if (typeof registration.leagueId !== 'string') {
+      throw new Error('Registration League relationship is invalid.');
+    }
+
+    const leagueRef = db.collection(collections.leagues).doc(registration.leagueId);
+    const offeringRef = db
+      .collection(collections.registrationOfferings)
       .doc(registration.registrationOfferingId);
-    const counterSnapshot = await transaction.get(counterRef);
+    const leagueSnapshot = await transaction.get(leagueRef);
+    const offeringSnapshot = await transaction.get(offeringRef);
+
+    if (!leagueSnapshot.exists || !offeringSnapshot.exists) {
+      throw new Error('League or Registration offering was not found.');
+    }
+
+    const league = leagueSnapshot.data() as LeagueData;
+
+    if (league.registrationOfferingId !== registration.registrationOfferingId) {
+      throw new Error('League does not belong to Registration offering.');
+    }
+
     const timestamp = Timestamp.now();
     const providerPaymentIntentId = getPaymentIntentId(session.payment_intent);
 
@@ -136,18 +161,25 @@ async function fulfillSuccessfulCheckout(
       throw new Error('Registration is not eligible for payment fulfillment.');
     }
 
-    const lastAssignedOrder = counterSnapshot.exists
-      ? counterSnapshot.data()?.lastAssignedOrder
-      : 0;
+    const lastAssignedOrder = league.lastAssignedRegistrationOrder;
+    const confirmedCount = league.confirmedCount;
 
-    if (!Number.isInteger(lastAssignedOrder) || lastAssignedOrder < 0) {
-      throw new Error('Registration counter is invalid.');
+    if (
+      !Number.isInteger(lastAssignedOrder)
+      || Number(lastAssignedOrder) < 0
+      || !Number.isInteger(confirmedCount)
+      || Number(confirmedCount) < 0
+      || !Number.isInteger(league.activeHoldCount)
+      || Number(league.activeHoldCount) < 0
+    ) {
+      throw new Error('League registration state is invalid.');
     }
 
-    const nextOrder = lastAssignedOrder + 1;
+    const nextOrder = Number(lastAssignedOrder) + 1;
 
-    transaction.set(counterRef, {
-      lastAssignedOrder: nextOrder,
+    transaction.update(leagueRef, {
+      confirmedCount: Number(confirmedCount) + 1,
+      lastAssignedRegistrationOrder: nextOrder,
       updatedAt: timestamp,
     });
     transaction.update(paymentRef, {

@@ -59,6 +59,7 @@ export async function createRegistration(input: CreateRegistrationInput): Promis
   await setDoc(reference, {
     playerId,
     registrationOfferingId: input.registrationOfferingId,
+    leagueId: input.leagueId,
     status: 'pending_payment',
     competitionRulesVersionAccepted: input.competitionRulesVersionAccepted,
     competitionRulesAcceptedAt: timestamp,

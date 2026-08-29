@@ -25,6 +25,7 @@ type CheckoutRequest = {
 type RegistrationData = {
   playerId?: unknown;
   registrationOfferingId?: unknown;
+  leagueId?: unknown;
   status?: unknown;
   promoCodeId?: unknown;
   promoCodeSnapshot?: unknown;
@@ -37,6 +38,13 @@ type OfferingData = {
   registrationClosesAt?: unknown;
   entryFeeCents?: unknown;
   currency?: unknown;
+};
+
+type LeagueData = {
+  registrationOfferingId?: unknown;
+  status?: unknown;
+  capacity?: unknown;
+  confirmedCount?: unknown;
 };
 
 type PlayerData = {
@@ -120,6 +128,29 @@ function validateOffering(offering: OfferingData, now: Timestamp): { amountCents
   }
 
   return { amountCents: Number(offering.entryFeeCents), currency: 'USD' };
+}
+
+function validateLeague(league: LeagueData, registrationOfferingId: string): void {
+  if (league.registrationOfferingId !== registrationOfferingId) {
+    throw new HttpsError('failed-precondition', 'League does not belong to Registration offering.');
+  }
+
+  if (league.status !== 'open') {
+    throw new HttpsError('failed-precondition', 'League is not open for registration.');
+  }
+
+  if (
+    !Number.isInteger(league.capacity)
+    || Number(league.capacity) < 1
+    || !Number.isInteger(league.confirmedCount)
+    || Number(league.confirmedCount) < 0
+  ) {
+    throw new HttpsError('failed-precondition', 'League registration state is invalid.');
+  }
+
+  if (Number(league.confirmedCount) >= Number(league.capacity)) {
+    throw new HttpsError('resource-exhausted', 'League is full.');
+  }
 }
 
 function getLockedAttribution(registration: RegistrationData): Attribution {
@@ -286,14 +317,20 @@ export const createRegistrationCheckout = onCall(
 
     const registration = registrationSnapshot.data() as RegistrationData;
     const offeringId = validateRegistrationOwner(registration, playerId);
+    const leagueId = requireString(registration.leagueId, 'Registration league');
     const offeringRef = db.collection(collections.registrationOfferings).doc(offeringId);
-    const offeringSnapshot = await offeringRef.get();
+    const leagueRef = db.collection(collections.leagues).doc(leagueId);
+    const [offeringSnapshot, leagueSnapshot] = await Promise.all([
+      offeringRef.get(),
+      leagueRef.get(),
+    ]);
 
-    if (!offeringSnapshot.exists) {
-      throw new HttpsError('failed-precondition', 'Registration offering was not found.');
+    if (!offeringSnapshot.exists || !leagueSnapshot.exists) {
+      throw new HttpsError('failed-precondition', 'Registration offering or League was not found.');
     }
 
     const price = validateOffering(offeringSnapshot.data() as OfferingData, Timestamp.now());
+    validateLeague(leagueSnapshot.data() as LeagueData, offeringId);
     const attribution = await validateAttribution(registration, data.promoCode);
     const successUrl = requireConfiguredUrl(checkoutSuccessUrl.value(), 'CHECKOUT_SUCCESS_URL');
     const cancelUrl = requireConfiguredUrl(checkoutCancelUrl.value(), 'CHECKOUT_CANCEL_URL');
@@ -329,6 +366,7 @@ export const createRegistrationCheckout = onCall(
         const currentPlayerSnapshot = await transaction.get(playerRef);
         const currentRegistrationSnapshot = await transaction.get(registrationRef);
         const currentOfferingSnapshot = await transaction.get(offeringRef);
+        const currentLeagueSnapshot = await transaction.get(leagueRef);
         const paymentRef = db.collection(collections.payments).doc(paymentId);
         const paymentSnapshot = await transaction.get(paymentRef);
         const checkoutLockRef = db
@@ -352,6 +390,7 @@ export const createRegistrationCheckout = onCall(
           || currentPlayer.profileComplete !== true
           || !currentRegistrationSnapshot.exists
           || !currentOfferingSnapshot.exists
+          || !currentLeagueSnapshot.exists
         ) {
           throw new HttpsError('failed-precondition', 'Checkout eligibility changed.');
         }
@@ -362,6 +401,12 @@ export const createRegistrationCheckout = onCall(
         if (currentOfferingId !== offeringId) {
           throw new HttpsError('failed-precondition', 'Checkout eligibility changed.');
         }
+
+        if (requireString(currentRegistration.leagueId, 'Registration league') !== leagueId) {
+          throw new HttpsError('failed-precondition', 'Checkout eligibility changed.');
+        }
+
+        validateLeague(currentLeagueSnapshot.data() as LeagueData, offeringId);
 
         const currentPrice = validateOffering(
           currentOfferingSnapshot.data() as OfferingData,
