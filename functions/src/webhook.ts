@@ -60,7 +60,7 @@ function eventRecord(event: Stripe.Event, session: Stripe.Checkout.Session, time
 }
 
 export async function fulfillSuccessfulCheckout(
-  event: Stripe.Event,
+  event: Stripe.Event | null,
   session: Stripe.Checkout.Session,
 ): Promise<void> {
   if (session.mode !== 'payment' || session.payment_status !== 'paid') {
@@ -68,7 +68,9 @@ export async function fulfillSuccessfulCheckout(
   }
 
   const { paymentId, registrationId, leagueId, seatHoldId } = requireMetadata(session);
-  const eventRef = db.collection(collections.stripeWebhookEvents).doc(event.id);
+  const eventRef = event
+    ? db.collection(collections.stripeWebhookEvents).doc(event.id)
+    : null;
   const paymentRef = db.collection(collections.payments).doc(paymentId);
   const registrationRef = db.collection(collections.registrations).doc(registrationId);
   const seatHoldRef = db.collection(collections.seatHolds).doc(seatHoldId);
@@ -78,14 +80,14 @@ export async function fulfillSuccessfulCheckout(
     .doc(registrationId);
 
   await db.runTransaction(async (transaction) => {
-    const eventSnapshot = await transaction.get(eventRef);
+    const eventSnapshot = eventRef ? await transaction.get(eventRef) : null;
     const paymentSnapshot = await transaction.get(paymentRef);
     const registrationSnapshot = await transaction.get(registrationRef);
     const seatHoldSnapshot = await transaction.get(seatHoldRef);
     const leagueSnapshot = await transaction.get(leagueRef);
     const checkoutLockSnapshot = await transaction.get(checkoutLockRef);
 
-    if (eventSnapshot.exists) {
+    if (eventSnapshot?.exists) {
       return;
     }
 
@@ -154,7 +156,9 @@ export async function fulfillSuccessfulCheckout(
         throw new Error('Succeeded Payment has inconsistent Registration state.');
       }
 
-      transaction.create(eventRef, eventRecord(event, session, timestamp));
+      if (eventRef && event) {
+        transaction.create(eventRef, eventRecord(event, session, timestamp));
+      }
       if (checkoutLockSnapshot.data()?.paymentId === paymentId) {
         transaction.delete(checkoutLockRef);
       }
@@ -172,7 +176,9 @@ export async function fulfillSuccessfulCheckout(
         succeededAt: timestamp,
         updatedAt: timestamp,
       });
-      transaction.create(eventRef, eventRecord(event, session, timestamp));
+      if (eventRef && event) {
+        transaction.create(eventRef, eventRecord(event, session, timestamp));
+      }
       if (checkoutLockSnapshot.data()?.paymentId === paymentId) {
         transaction.delete(checkoutLockRef);
       }
@@ -243,7 +249,9 @@ export async function fulfillSuccessfulCheckout(
       status: 'converted',
       updatedAt: timestamp,
     });
-    transaction.create(eventRef, eventRecord(event, session, timestamp));
+    if (eventRef && event) {
+      transaction.create(eventRef, eventRecord(event, session, timestamp));
+    }
     if (checkoutLockSnapshot.data()?.paymentId === paymentId) {
       transaction.delete(checkoutLockRef);
     }
@@ -251,11 +259,13 @@ export async function fulfillSuccessfulCheckout(
 }
 
 export async function expireCheckout(
-  event: Stripe.Event,
+  event: Stripe.Event | null,
   session: Stripe.Checkout.Session,
 ): Promise<void> {
   const { paymentId, registrationId, leagueId, seatHoldId } = requireMetadata(session);
-  const eventRef = db.collection(collections.stripeWebhookEvents).doc(event.id);
+  const eventRef = event
+    ? db.collection(collections.stripeWebhookEvents).doc(event.id)
+    : null;
   const paymentRef = db.collection(collections.payments).doc(paymentId);
   const registrationRef = db.collection(collections.registrations).doc(registrationId);
   const seatHoldRef = db.collection(collections.seatHolds).doc(seatHoldId);
@@ -265,14 +275,14 @@ export async function expireCheckout(
     .doc(registrationId);
 
   await db.runTransaction(async (transaction) => {
-    const eventSnapshot = await transaction.get(eventRef);
+    const eventSnapshot = eventRef ? await transaction.get(eventRef) : null;
     const paymentSnapshot = await transaction.get(paymentRef);
     const registrationSnapshot = await transaction.get(registrationRef);
     const seatHoldSnapshot = await transaction.get(seatHoldRef);
     const leagueSnapshot = await transaction.get(leagueRef);
     const checkoutLockSnapshot = await transaction.get(checkoutLockRef);
 
-    if (eventSnapshot.exists) {
+    if (eventSnapshot?.exists) {
       return;
     }
 
@@ -304,7 +314,9 @@ export async function expireCheckout(
         throw new Error('Released SeatHold relationships are inconsistent.');
       }
 
-      transaction.create(eventRef, eventRecord(event, session, timestamp));
+      if (eventRef && event) {
+        transaction.create(eventRef, eventRecord(event, session, timestamp));
+      }
       if (checkoutLockSnapshot.data()?.paymentId === paymentId) {
         transaction.delete(checkoutLockRef);
       }
@@ -377,7 +389,9 @@ export async function expireCheckout(
       throw new Error('SeatHold is not eligible for expiration.');
     }
 
-    transaction.create(eventRef, eventRecord(event, session, timestamp));
+    if (eventRef && event) {
+      transaction.create(eventRef, eventRecord(event, session, timestamp));
+    }
     if (checkoutLockSnapshot.data()?.paymentId === paymentId) {
       transaction.delete(checkoutLockRef);
     }
