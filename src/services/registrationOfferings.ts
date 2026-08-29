@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, orderBy, query } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, orderBy, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import type {
   RegistrationOffering,
@@ -31,4 +31,20 @@ export async function getRegistrationOfferings(): Promise<RegistrationOffering[]
     id: offeringDocument.id,
     ...(offeringDocument.data() as RegistrationOfferingDocument),
   }));
+}
+
+export async function getRegistrationOfferingsForLeagueStartAndTier(
+  leagueStartId: string,
+  tierId: string,
+): Promise<RegistrationOffering[]> {
+  const snapshot = await getDocs(
+    query(registrationOfferingsCollection, where('leagueStartId', '==', leagueStartId)),
+  );
+
+  return snapshot.docs
+    .map((offeringDocument) => ({
+      id: offeringDocument.id,
+      ...(offeringDocument.data() as RegistrationOfferingDocument),
+    }))
+    .filter((offering) => offering.tierId === tierId);
 }

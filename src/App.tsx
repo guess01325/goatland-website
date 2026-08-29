@@ -1,5 +1,6 @@
 import { Route, Routes } from 'react-router-dom';
 import { RootLayout } from './components/RootLayout';
+import { PlayerProfileGate } from './components/PlayerProfileGate';
 import { ContactPage } from './pages/ContactPage';
 import { GameDetailPage } from './pages/GameDetailPage';
 import { GamesPage } from './pages/GamesPage';
@@ -11,6 +12,7 @@ import { NotFoundPage } from './pages/NotFoundPage';
 import { OnboardingPage } from './pages/OnboardingPage';
 import { PlayerProgressionPage } from './pages/PlayerProgressionPage';
 import { RulesPage } from './pages/RulesPage';
+import { RegistrationPage } from './pages/RegistrationPage';
 import { SocialMediaPage } from './pages/SocialMediaPage';
 import { SignUpPage } from './pages/SignUpPage';
 import { TournamentsPage } from './pages/TournamentsPage';
@@ -39,6 +41,9 @@ export default function App() {
         <Route path="login" element={<LogInPage />} />
         <Route path="forgot-password" element={<ForgotPasswordPage />} />
         <Route path="onboarding" element={<OnboardingPage />} />
+        <Route element={<PlayerProfileGate />}>
+          <Route path="register" element={<RegistrationPage />} />
+        </Route>
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

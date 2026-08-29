@@ -25,3 +25,9 @@ export async function getGames(): Promise<Game[]> {
     ...(gameDocument.data() as GameDocument),
   }));
 }
+
+export async function getRegistrationGames(): Promise<Game[]> {
+  const games = await getGames();
+
+  return games.filter(({ status }) => status === 'active' || status === 'coming_soon');
+}

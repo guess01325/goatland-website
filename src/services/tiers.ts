@@ -25,3 +25,9 @@ export async function getTiers(): Promise<Tier[]> {
     ...(tierDocument.data() as TierDocument),
   }));
 }
+
+export async function getActiveTiers(): Promise<Tier[]> {
+  const tiers = await getTiers();
+
+  return tiers.filter(({ status }) => status === 'active');
+}

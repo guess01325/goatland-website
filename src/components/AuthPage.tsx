@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { getAuthErrorMessage } from '../auth/authErrors';
 import { useAuth } from '../auth/AuthProvider';
 
@@ -9,6 +9,7 @@ type AuthPageProps = {
 
 export function AuthPage({ mode }: AuthPageProps) {
   const { user, loading, logIn, signUp, signInWithGoogle } = useAuth();
+  const location = useLocation();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -16,6 +17,12 @@ export function AuthPage({ mode }: AuthPageProps) {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const isSignUp = mode === 'signup';
+  const requestedPath = (location.state as { from?: unknown } | null)?.from;
+  const returnPath = typeof requestedPath === 'string'
+    && requestedPath.startsWith('/')
+    && !requestedPath.startsWith('//')
+    ? requestedPath
+    : '/onboarding';
 
   if (loading) {
     return <AuthLoading />;
@@ -41,7 +48,7 @@ export function AuthPage({ mode }: AuthPageProps) {
       } else {
         await logIn(email.trim(), password);
       }
-      navigate('/onboarding', { replace: true });
+      navigate(returnPath, { replace: true });
     } catch (authError) {
       setError(getAuthErrorMessage(authError));
     } finally {
@@ -54,7 +61,7 @@ export function AuthPage({ mode }: AuthPageProps) {
     setSubmitting(true);
     try {
       await signInWithGoogle();
-      navigate('/onboarding', { replace: true });
+      navigate(returnPath, { replace: true });
     } catch (authError) {
       setError(getAuthErrorMessage(authError));
     } finally {

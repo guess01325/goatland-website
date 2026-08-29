@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, orderBy, query } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, orderBy, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import type { LeagueStart, LeagueStartDocument } from '../models/LeagueStart';
 
@@ -24,4 +24,21 @@ export async function getLeagueStarts(): Promise<LeagueStart[]> {
     id: leagueStartDocument.id,
     ...(leagueStartDocument.data() as LeagueStartDocument),
   }));
+}
+
+export async function getLeagueStartsForGame(gameId: string): Promise<LeagueStart[]> {
+  const snapshot = await getDocs(
+    query(leagueStartsCollection, where('gameId', '==', gameId)),
+  );
+
+  return snapshot.docs
+    .map((leagueStartDocument) => ({
+      id: leagueStartDocument.id,
+      ...(leagueStartDocument.data() as LeagueStartDocument),
+    }))
+    .sort((first, second) => {
+      const firstMillis = first.startsAt?.toMillis() ?? Number.POSITIVE_INFINITY;
+      const secondMillis = second.startsAt?.toMillis() ?? Number.POSITIVE_INFINITY;
+      return firstMillis - secondMillis;
+    });
 }

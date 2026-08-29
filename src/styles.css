@@ -2427,6 +2427,210 @@ p {
   text-transform: uppercase;
 }
 
+.registration-browser-section {
+  background:
+    radial-gradient(circle at 85% 5%, rgba(246, 181, 30, 0.09), transparent 28%),
+    var(--color-background);
+}
+
+.registration-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0 0 var(--space-7);
+  padding: 0;
+  list-style: none;
+}
+
+.registration-steps li {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  color: var(--color-muted);
+  background: rgba(255, 255, 255, 0.035);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.registration-steps li span {
+  display: grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+}
+
+.registration-steps__current,
+.registration-steps__complete {
+  border-color: rgba(246, 181, 30, 0.55) !important;
+  color: var(--color-gold) !important;
+}
+
+.registration-steps__current {
+  background: rgba(246, 181, 30, 0.1) !important;
+}
+
+.registration-picker-step {
+  padding-block: var(--space-6);
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.registration-picker-step:first-of-type {
+  border-top: 0;
+}
+
+.registration-option-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-5);
+}
+
+.registration-option {
+  display: grid;
+  gap: var(--space-3);
+  min-height: 132px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  color: var(--color-text);
+  background:
+    linear-gradient(145deg, rgba(246, 181, 30, 0.06), transparent 50%),
+    var(--color-surface);
+  box-shadow: var(--shadow-panel);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--transition), transform var(--transition);
+}
+
+.registration-option:hover:not(:disabled),
+.registration-option:focus-visible:not(:disabled) {
+  border-color: rgba(246, 181, 30, 0.7);
+  transform: translateY(-2px);
+}
+
+.registration-option--selected {
+  border-color: var(--color-gold);
+  outline: 2px solid rgba(246, 181, 30, 0.18);
+}
+
+.registration-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.registration-option__topline {
+  display: flex;
+  gap: var(--space-3);
+  align-items: start;
+  justify-content: space-between;
+}
+
+.registration-option__topline strong {
+  font-size: 1.05rem;
+}
+
+.registration-option__badge,
+.registration-option__selected-label {
+  color: var(--color-gold);
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.registration-option__badge {
+  border: 1px solid rgba(246, 181, 30, 0.4);
+  border-radius: 999px;
+  padding: 0.25rem 0.45rem;
+  white-space: nowrap;
+}
+
+.registration-option__description {
+  display: grid;
+  gap: var(--space-2);
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+.registration-option__description small {
+  display: block;
+  font-size: 0.76rem;
+}
+
+.registration-option__selected-label {
+  align-self: end;
+}
+
+.registration-league-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr);
+  gap: var(--space-5);
+  align-items: start;
+  margin-top: var(--space-5);
+}
+
+.registration-option-grid--leagues {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0;
+}
+
+.registration-roster {
+  min-height: 240px;
+}
+
+.registration-roster--empty {
+  color: var(--color-muted);
+}
+
+.registration-roster h2 {
+  margin-bottom: var(--space-4);
+}
+
+.registration-roster__list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.registration-roster__list li {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  padding: var(--space-2) 0;
+  font-weight: 750;
+}
+
+.registration-inline-state,
+.registration-note {
+  margin: var(--space-4) 0 0;
+  border-left: 3px solid var(--color-gold);
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-muted);
+  background: rgba(246, 181, 30, 0.07);
+}
+
+.registration-inline-state--error {
+  color: #ffaaa6;
+  border-left-color: #ff8b86;
+  background: rgba(213, 32, 25, 0.12);
+}
+
+.registration-inline-state--error .button-link {
+  margin-top: var(--space-3);
+}
+
+.registration-checkout-notice {
+  margin-top: var(--space-6);
+}
+
 .auth-nav-button,
 .auth-mobile-button {
   font: inherit;
@@ -2492,6 +2696,14 @@ p {
   }
 
   .auth-section__inner {
+    grid-template-columns: 1fr;
+  }
+
+  .registration-option-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .registration-league-layout {
     grid-template-columns: 1fr;
   }
 
@@ -2617,6 +2829,15 @@ p {
   .auth-section {
     min-height: auto;
     padding-block: var(--space-7);
+  }
+
+  .registration-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .registration-option-grid,
+  .registration-option-grid--leagues {
+    grid-template-columns: 1fr;
   }
 
   .brand-link__logo {
