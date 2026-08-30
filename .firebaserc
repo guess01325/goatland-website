@@ -1,6 +1,7 @@
 {
   "projects": {
-    "dev": "goatland-development"
+    "dev": "goatland-development",
+    "prod": "goatland-production"
   },
   "targets": {},
   "etags": {}
