@@ -233,6 +233,24 @@ async function seedFixture({ league1 = {}, league2 = {}, registrations = [] } = 
   await batch.commit();
 }
 
+async function seedPromo(code, promoterId) {
+  const now = Timestamp.now();
+  const batch = db.batch();
+  batch.set(db.collection('promoters').doc(promoterId), {
+    name: `Test Promoter ${promoterId}`,
+    status: 'active',
+    createdAt: now,
+    updatedAt: now,
+  });
+  batch.set(db.collection('promoCodes').doc(code), {
+    promoterId,
+    status: 'active',
+    createdAt: now,
+    updatedAt: now,
+  });
+  await batch.commit();
+}
+
 function checkout(label, requestId = REQUEST_IDS[0], promoCode = undefined) {
   return createRegistrationCheckout.run({
     auth: { uid: identities[label].uid, token: { email: identities[label].email } },
@@ -1939,6 +1957,155 @@ test('Pending Registration sibling League switching L1-L30', async (t) => {
     assert.equal(registration.status, 'cancelled');
     assert.equal('acquisitionSource' in registration, false);
     assert.equal('acquisitionSourceOther' in registration, false);
+  });
+});
+
+test('Payment promo attribution T1-T10', async (t) => {
+  await t.test('T1 T2 T4 T5 validated normalized attribution is atomic and price-independent', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    await seedPromo('NIGHTFLIGHT', 'promoter-nightflight');
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+
+    const result = await checkout('a', REQUEST_IDS[0], ' nightflight ');
+    const current = await state('a');
+    const payment = current.payments.find(({ id }) => id === result.paymentId);
+    const parameters = stripe.createParameters[0];
+    const offering = (await db.collection('registrationOfferings').doc(OFFERING_ID).get()).data();
+
+    assert.deepEqual(
+      [payment.promoCodeSnapshot, payment.promoterIdSnapshot],
+      ['NIGHTFLIGHT', 'promoter-nightflight'],
+    );
+    assert.deepEqual(
+      [current.registration.promoCodeSnapshot, current.registration.promoterIdSnapshot],
+      [payment.promoCodeSnapshot, payment.promoterIdSnapshot],
+    );
+    assert.equal(offering.entryFeeCents, 500);
+    assert.equal(payment.amountCents, 500);
+    assert.equal(parameters.line_items[0].price_data.unit_amount, 500);
+    assert.equal('discounts' in parameters, false);
+  });
+
+  await t.test('T3 no-promo Payment contains explicit null attribution', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+
+    const { payment } = await activate('a');
+
+    assert.deepEqual(
+      [payment.promoCodeSnapshot, payment.promoterIdSnapshot],
+      [null, null],
+    );
+  });
+
+  await t.test('T6 same-attempt retry cannot replace Payment attribution', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    await seedPromo('NIGHTFLIGHT', 'promoter-nightflight');
+    await seedPromo('DAYBREAK', 'promoter-daybreak');
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+
+    const first = await checkout('a', REQUEST_IDS[0], 'NIGHTFLIGHT');
+    const retry = await checkout('a', REQUEST_IDS[0], 'DAYBREAK');
+    const current = await state('a');
+
+    assert.deepEqual(retry, first);
+    assert.equal(stripe.createCount, 1);
+    assert.equal(current.payments.length, 1);
+    assert.deepEqual(
+      [current.payments[0].promoCodeSnapshot, current.payments[0].promoterIdSnapshot],
+      ['NIGHTFLIGHT', 'promoter-nightflight'],
+    );
+  });
+
+  await t.test('T7 new-UUID lock resume cannot replace Payment attribution', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    await seedPromo('NIGHTFLIGHT', 'promoter-nightflight');
+    await seedPromo('DAYBREAK', 'promoter-daybreak');
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+
+    const first = await checkout('a', REQUEST_IDS[0], 'NIGHTFLIGHT');
+    const resumed = await checkout('a', REQUEST_IDS[1], 'DAYBREAK');
+    const current = await state('a');
+    const replacementPaymentId = getPaymentId(
+      identities.a.uid,
+      registrationId('a'),
+      REQUEST_IDS[1],
+    );
+
+    assert.deepEqual(resumed, first);
+    assert.equal(stripe.createCount, 1);
+    assert.equal(current.payments.some(({ id }) => id === replacementPaymentId), false);
+    assert.deepEqual(
+      [current.payments[0].promoCodeSnapshot, current.payments[0].promoterIdSnapshot],
+      ['NIGHTFLIGHT', 'promoter-nightflight'],
+    );
+  });
+
+  await t.test('T8 webhook success preserves Payment attribution', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    await seedPromo('NIGHTFLIGHT', 'promoter-nightflight');
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+
+    const result = await checkout('a', REQUEST_IDS[0], 'NIGHTFLIGHT');
+    const payment = (await db.collection('payments').doc(result.paymentId).get()).data();
+    await fulfillSuccessfulCheckout(
+      stripeEvent('evt_payment_promo_success', 'checkout.session.completed'),
+      paidSession(stripe, payment.providerCheckoutSessionId),
+    );
+    const succeeded = (await db.collection('payments').doc(result.paymentId).get()).data();
+
+    assert.equal(succeeded.status, 'succeeded');
+    assert.deepEqual(
+      [succeeded.promoCodeSnapshot, succeeded.promoterIdSnapshot],
+      ['NIGHTFLIGHT', 'promoter-nightflight'],
+    );
+  });
+
+  await t.test('T9 expiration preserves unsuccessful Payment attribution', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    await seedPromo('NIGHTFLIGHT', 'promoter-nightflight');
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+
+    const result = await checkout('a', REQUEST_IDS[0], 'NIGHTFLIGHT');
+    const payment = (await db.collection('payments').doc(result.paymentId).get()).data();
+    const session = stripe.sessions.get(payment.providerCheckoutSessionId);
+    session.status = 'expired';
+    session.url = null;
+    await expireCheckout(
+      stripeEvent('evt_payment_promo_expired', 'checkout.session.expired'),
+      session,
+    );
+    const expired = (await db.collection('payments').doc(result.paymentId).get()).data();
+
+    assert.equal(expired.status, 'expired');
+    assert.deepEqual(
+      [expired.promoCodeSnapshot, expired.promoterIdSnapshot],
+      ['NIGHTFLIGHT', 'promoter-nightflight'],
+    );
+  });
+
+  await t.test('T10 nonexistent promo creates no Payment or reserved capacity', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+
+    await assert.rejects(
+      checkout('a', REQUEST_IDS[0], 'NOT-FOUND'),
+      /PromoCode is invalid or unavailable/,
+    );
+    const current = await state('a');
+
+    assert.equal(stripe.createCount, 0);
+    assert.equal(current.payments.length, 0);
+    assert.equal(current.holds.length, 0);
+    assert.equal(current.lock.exists, false);
+    assert.equal(current.league.activeHoldCount, 0);
   });
 });
 

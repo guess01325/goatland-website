@@ -957,6 +957,8 @@ export const createRegistrationCheckout = onCall(
           status: 'pending',
           amountCents: price.amountCents,
           currency: price.currency,
+          promoCodeSnapshot: attribution?.promoCodeSnapshot ?? null,
+          promoterIdSnapshot: attribution?.promoterIdSnapshot ?? null,
           providerCheckoutSessionId: session.id,
           providerPaymentIntentId: getPaymentIntentId(session.payment_intent),
           createdAt: timestamp,

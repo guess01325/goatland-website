@@ -125,6 +125,8 @@ async function seedHold(label, {
   leagueId = LEAGUE_1_ID,
   providerSessionId = refs(label).sessionId,
   registrationOrder = null,
+  promoCodeSnapshot = null,
+  promoterIdSnapshot = null,
 } = {}) {
   const ids = refs(label);
   const now = Timestamp.now();
@@ -148,6 +150,9 @@ async function seedHold(label, {
     status: registrationStatus,
     acquisitionSource: 'facebook',
     acquisitionSourceOther: null,
+    promoCodeId: promoCodeSnapshot,
+    promoCodeSnapshot,
+    promoterIdSnapshot,
     registrationOrder,
     confirmedAt: registrationStatus === 'confirmed' ? now : null,
     createdAt: now,
@@ -176,6 +181,8 @@ async function seedHold(label, {
       status: paymentStatus,
       amountCents: 500,
       currency: 'USD',
+      promoCodeSnapshot,
+      promoterIdSnapshot,
       providerCheckoutSessionId: providerSessionId,
       providerPaymentIntentId: null,
       createdAt: now,
@@ -260,7 +267,10 @@ test('SeatHold reconciliation R1-R13 and provisioning', async (t) => {
 
   await t.test('R2. active plus Stripe expired releases once', async () => {
     await seedBase({ league1: { activeHoldCount: 1 } });
-    await seedHold('r2');
+    await seedHold('r2', {
+      promoCodeSnapshot: 'NIGHTFLIGHT',
+      promoterIdSnapshot: 'promoter-nightflight',
+    });
     const stripe = new ReconciliationStripe();
     stripe.sessions.set(refs('r2').sessionId, session('r2', { status: 'expired' }));
     setStripeForEmulatorTests(stripe);
@@ -268,6 +278,10 @@ test('SeatHold reconciliation R1-R13 and provisioning', async (t) => {
     const state = await readState('r2');
     assert.equal(state.hold.status, 'expired');
     assert.equal(state.payment.status, 'expired');
+    assert.deepEqual(
+      [state.payment.promoCodeSnapshot, state.payment.promoterIdSnapshot],
+      ['NIGHTFLIGHT', 'promoter-nightflight'],
+    );
     assert.equal(state.league.activeHoldCount, 0);
     assert.equal(state.lockExists, false);
     assert.equal(state.roster.length, 0);
@@ -275,7 +289,10 @@ test('SeatHold reconciliation R1-R13 and provisioning', async (t) => {
 
   await t.test('R3. active plus Stripe paid converts', async () => {
     await seedBase({ league1: { activeHoldCount: 1 } });
-    await seedHold('r3');
+    await seedHold('r3', {
+      promoCodeSnapshot: 'NIGHTFLIGHT',
+      promoterIdSnapshot: 'promoter-nightflight',
+    });
     const stripe = new ReconciliationStripe();
     stripe.sessions.set(refs('r3').sessionId, session('r3', {
       status: 'complete', payment_status: 'paid',
@@ -290,6 +307,10 @@ test('SeatHold reconciliation R1-R13 and provisioning', async (t) => {
     assert.equal(state.roster.length, 1);
     assert.equal(state.hold.status, 'converted');
     assert.equal(state.payment.status, 'succeeded');
+    assert.deepEqual(
+      [state.payment.promoCodeSnapshot, state.payment.promoterIdSnapshot],
+      ['NIGHTFLIGHT', 'promoter-nightflight'],
+    );
     assert.equal(state.registration.status, 'confirmed');
     assert.equal(state.registration.registrationOrder, 1);
     assert.equal(state.lockExists, false);

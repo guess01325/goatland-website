@@ -11,6 +11,8 @@ export type Payment = {
   status: PaymentStatus;
   amountCents: number;
   currency: 'USD';
+  promoCodeSnapshot: string | null;
+  promoterIdSnapshot: string | null;
   providerCheckoutSessionId: string;
   providerPaymentIntentId: string | null;
   createdAt: Timestamp;
