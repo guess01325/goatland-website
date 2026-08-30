@@ -24,3 +24,6 @@ functions/lib/
 
 # Local Firebase Functions secrets
 functions/.secret.local
+
+# Local Netlify folder
+.netlify
