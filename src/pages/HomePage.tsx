@@ -5,14 +5,14 @@ import { supportedGames as gameList } from '../data/games';
 import { registrationAnnouncement } from '../data/registration';
 
 const championshipPrizes = [
-  { name: 'GOAT Bowl', game: 'Madden NFL', prize: '$25,000' },
-  { name: 'Super GOAT Bowl', game: 'College Football', prize: '$25,000' },
-  { name: 'GOATLAND Classic', game: 'NBA 2K', prize: '$25,000' },
+  { name: 'GOAT Bowl', game: 'EA Sports College Football 27', prize: '$25,000' },
+  { name: 'Super GOAT Bowl', game: 'Madden 27', prize: '$25,000' },
+  { name: 'GOATLAND Classic', game: 'NBA 2K27', prize: '$25,000' },
   { name: 'MUT GOATLAND', game: 'Madden Ultimate Team', prize: '$10,000' },
 ];
 
 const playerBenefits = [
-  'Compete in structured seven-week leagues',
+  'Compete in structured five-week regular seasons',
   'Reach the top-eight playoffs',
   'Earn cash payouts',
   'Win league championships',
@@ -38,8 +38,8 @@ const howItWorks = [
     text: 'Join a structured competition built for serious players.',
   },
   {
-    title: 'Compete for Seven Weeks',
-    text: 'Play the season, protect your spot, and chase the standings.',
+    title: 'Compete for Five Weeks',
+    text: 'Play two matches per week, protect your spot, and chase the standings.',
   },
   {
     title: 'Reach the Playoffs',

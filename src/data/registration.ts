@@ -1,8 +1,8 @@
 export const registrationAnnouncement = {
-  opensLabel: 'Registration Opens August 29',
+  opensLabel: 'Registration Is Open',
   heroBody:
-    'Paid competitive leagues are coming to GOATLAND. Full registration details will be available when registration opens.',
+    'Registration for GOATLAND competitive leagues is now open. Explore current league details and registration information.',
   sectionBody:
-    'GOATLAND registration for paid competitive leagues begins August 29. League details, entry information, and registration instructions will be posted before registration opens.',
+    'GOATLAND registration for competitive leagues is now open. Browse current league details, entry information, and registration instructions.',
   informationPath: '/leagues',
 };

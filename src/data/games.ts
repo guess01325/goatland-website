@@ -80,7 +80,7 @@ export const supportedGames: SupportedGame[] = [
         value:
           'Best of 5; Games 1–4: 3 Minute Quarters; Game 5: 5 Minute Quarters; Difficulty: All-Madden',
       },
-      { label: 'Annual Tournament', value: 'GOAT Bowl' },
+      { label: 'Annual Tournament', value: 'Super GOAT Bowl' },
     ],
     detailSummaries: [
       {
@@ -142,7 +142,7 @@ export const supportedGames: SupportedGame[] = [
         value:
           'Best of 5; Games 1–4: 3 Minute Quarters; Game 5: 5 Minute Quarters; Difficulty: Heisman',
       },
-      { label: 'Annual Tournament', value: 'Super GOAT Bowl' },
+      { label: 'Annual Tournament', value: 'GOAT Bowl' },
     ],
     detailSummaries: [
       {
@@ -266,7 +266,7 @@ export const supportedGames: SupportedGame[] = [
         value:
           'Best of 5; Rotation: Game 1 — Hardpoint; Game 2 — Search & Destroy; Game 3 — Control; Game 4 — Hardpoint; Game 5 — Search & Destroy; Difficulty: Official CDL Rules',
       },
-      { label: 'Annual Tournament', value: 'MUT GOATLAND' },
+      { label: 'Annual Tournament', value: 'Not Available' },
     ],
     detailSummaries: [
       {
@@ -314,9 +314,9 @@ export const supportedGames: SupportedGame[] = [
     ],
     howItWorks: [
       'Choose an MLB Tier 1 or Tier 2 league.',
-      'Compete through a random 7-week regular season schedule.',
+      'Compete through a five-week regular season with two matches per week.',
       'Play best-of-five matches during the league schedule.',
-      'Finish in the top 8 to qualify for Week 8 playoffs.',
+      'Finish in the top 8 to qualify for the playoffs.',
     ],
     statusTitle: 'MLB 27 supports Tier 1 and Tier 2.',
     statusText: 'Review the Leagues and Rules pages for current MLB 27 competition details.',
@@ -343,8 +343,9 @@ export const supportedGames: SupportedGame[] = [
         title: '16-player season structure',
         items: [
           '16-player leagues',
-          '7-week regular season',
-          'Week 8 playoffs',
+          'Five-week regular season',
+          'Two matches per week',
+          'Playoffs',
           'Top 8 qualify',
           'Random schedule',
         ],
