@@ -1,5 +1,7 @@
 import { httpsCallable } from 'firebase/functions';
+import { registrationPaymentsEnabled } from '../config/registrationPayments';
 import { functions } from '../lib/firebase';
+import { runRegistrationPaymentAction } from '../lib/registrationPaymentGate';
 
 export type CreateRegistrationCheckoutInput = {
   registrationId: string;
@@ -20,17 +22,19 @@ const createCheckoutCallable = httpsCallable<
 export async function createRegistrationCheckout(
   input: CreateRegistrationCheckoutInput,
 ): Promise<CreateRegistrationCheckoutResult> {
-  const response = await createCheckoutCallable(input);
-  const { paymentId, checkoutUrl } = response.data;
+  return runRegistrationPaymentAction(registrationPaymentsEnabled, async () => {
+    const response = await createCheckoutCallable(input);
+    const { paymentId, checkoutUrl } = response.data;
 
-  if (typeof paymentId !== 'string' || typeof checkoutUrl !== 'string') {
-    throw new Error('Checkout service returned an invalid response.');
-  }
+    if (typeof paymentId !== 'string' || typeof checkoutUrl !== 'string') {
+      throw new Error('Checkout service returned an invalid response.');
+    }
 
-  const parsedCheckoutUrl = new URL(checkoutUrl);
-  if (parsedCheckoutUrl.protocol !== 'https:') {
-    throw new Error('Checkout service returned an invalid destination.');
-  }
+    const parsedCheckoutUrl = new URL(checkoutUrl);
+    if (parsedCheckoutUrl.protocol !== 'https:') {
+      throw new Error('Checkout service returned an invalid destination.');
+    }
 
-  return { paymentId, checkoutUrl: parsedCheckoutUrl.toString() };
+    return { paymentId, checkoutUrl: parsedCheckoutUrl.toString() };
+  });
 }

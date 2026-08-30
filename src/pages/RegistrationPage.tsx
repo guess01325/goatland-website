@@ -7,6 +7,7 @@ import { RegistrationPolicies } from '../components/registration/RegistrationPol
 import { SelectionCard } from '../components/registration/SelectionCard';
 import { PageHeader } from '../components/PageHeader';
 import { SectionHeading } from '../components/SectionHeading';
+import { registrationPaymentsEnabled } from '../config/registrationPayments';
 import type { Game } from '../models/Game';
 import type { League } from '../models/League';
 import type { LeagueStart } from '../models/LeagueStart';
@@ -793,7 +794,8 @@ export function RegistrationPage() {
 
   const beginCheckout = useCallback(async () => {
     if (
-      !checkoutEligible
+      !registrationPaymentsEnabled
+      || !checkoutEligible
       || !managedRegistration
       || !selectedStart
       || checkoutStartingRef.current
@@ -1177,6 +1179,7 @@ export function RegistrationPage() {
                     promoLocked={promoLocked}
                     eligible={checkoutEligible}
                     policiesCurrent={policiesCurrent}
+                    paymentsEnabled={registrationPaymentsEnabled}
                     starting={checkoutStarting}
                     error={checkoutError}
                     onPay={() => void beginCheckout()}

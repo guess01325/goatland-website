@@ -4,6 +4,7 @@ import type { LeagueStart } from '../../models/LeagueStart';
 import type { Registration } from '../../models/Registration';
 import type { RegistrationOffering } from '../../models/RegistrationOffering';
 import type { Tier } from '../../models/Tier';
+import { REGISTRATION_PAYMENT_UNAVAILABLE_MESSAGE } from '../../lib/registrationPaymentGate';
 
 type RegistrationCheckoutProps = {
   registration: Registration;
@@ -16,6 +17,7 @@ type RegistrationCheckoutProps = {
   promoLocked: boolean;
   eligible: boolean;
   policiesCurrent: boolean;
+  paymentsEnabled: boolean;
   starting: boolean;
   error: string;
   onPay: () => void;
@@ -54,6 +56,7 @@ export function RegistrationCheckout({
   promoLocked,
   eligible,
   policiesCurrent,
+  paymentsEnabled,
   starting,
   error,
   onPay,
@@ -84,11 +87,22 @@ export function RegistrationCheckout({
         </p>
       ) : null}
 
+      {!paymentsEnabled ? (
+        <p className="registration-field-error" role="status">
+          {REGISTRATION_PAYMENT_UNAVAILABLE_MESSAGE}
+        </p>
+      ) : null}
+
       <button
         className="button-link"
         type="button"
         aria-busy={starting || undefined}
-        disabled={!eligible || starting || registration.status !== 'pending_payment'}
+        disabled={
+          !paymentsEnabled
+          || !eligible
+          || starting
+          || registration.status !== 'pending_payment'
+        }
         onClick={onPay}
       >
         {starting ? 'Opening secure checkout…' : 'Continue to Payment'}
