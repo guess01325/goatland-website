@@ -11,6 +11,7 @@
     "seed:payment:emulator": "node scripts/seed-payment-emulator.mjs",
     "seed:registration-e2e": "node scripts/seed-registration-e2e-emulator.mjs",
     "seed:registration-e2e:hosted-dev": "node scripts/seed-registration-e2e-hosted-dev.mjs",
+    "seed:registration:production": "node scripts/seed-registration-production.mjs",
     "seed:tiers:dev": "node scripts/seed-tiers-dev.mjs",
     "test:reconciliation:emulator": "firebase emulators:exec --project goatland-development --only firestore \"npm run build --prefix functions && node --test tests/reconciliation-emulator.test.mjs\"",
     "test:seat-holds:emulator": "firebase emulators:exec --project goatland-development --only auth,firestore \"npm run build --prefix functions && node --test tests/seat-hold-emulator.test.mjs\"",
