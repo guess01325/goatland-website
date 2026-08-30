@@ -12,10 +12,21 @@ const TIER_ID = 'registration-hosted-e2e-tier';
 const LEAGUE_START_ID = 'registration-hosted-e2e-league-start';
 const OFFERING_ID = 'registration-hosted-e2e-offering';
 const LEAGUE_ID = 'registration-hosted-e2e-offering__league-1';
-const PROMOTER_ID = 'e2e-hosted-referral-promoter';
-const PROMOTER_NAME = 'Hosted Development E2E Referral';
-const PROMO_CODE_ID = 'E2E-REFERRAL';
 const FIXTURE_STATUSES = new Set(['active', 'disabled', 'retired']);
+const PROMO_FIXTURES = [
+  { promoterId: 'otis-guess', promoterName: 'Otis Guess', promoCodeId: 'LOCKEDIN' },
+  {
+    promoterId: 'night-flight-basketball',
+    promoterName: 'Night Flight Basketball',
+    promoCodeId: 'NFBL860',
+  },
+  { promoterId: 'chris76tx', promoterName: 'Chris76TX', promoCodeId: 'CHRIS76TX' },
+  {
+    promoterId: 'e2e-hosted-referral-promoter',
+    promoterName: 'Hosted Development E2E Referral',
+    promoCodeId: 'E2E-REFERRAL',
+  },
+];
 
 function requireExactEnvironment(name) {
   if (process.env[name] !== PROJECT_ID) {
@@ -60,56 +71,74 @@ if (app.options.projectId !== PROJECT_ID) {
 }
 
 const firestore = getFirestore(app);
-const promoterRef = firestore.collection('promoters').doc(PROMOTER_ID);
-const promoCodeRef = firestore.collection('promoCodes').doc(PROMO_CODE_ID);
-const [existingPromoter, existingPromoCode] = await Promise.all([
-  promoterRef.get(),
-  promoCodeRef.get(),
+const promoterRefs = PROMO_FIXTURES.map(({ promoterId }) => (
+  firestore.collection('promoters').doc(promoterId)
+));
+const promoCodeRefs = PROMO_FIXTURES.map(({ promoCodeId }) => (
+  firestore.collection('promoCodes').doc(promoCodeId)
+));
+const [existingPromoters, existingPromoCodes] = await Promise.all([
+  Promise.all(promoterRefs.map((reference) => reference.get())),
+  Promise.all(promoCodeRefs.map((reference) => reference.get())),
 ]);
 
-if (existingPromoter.exists) {
-  const promoter = existingPromoter.data();
-  const hasExactSchema = Object.keys(promoter).sort().join(',')
-    === ['createdAt', 'name', 'status', 'updatedAt'].join(',');
-  if (
-    promoter.name !== PROMOTER_NAME
-    || !FIXTURE_STATUSES.has(promoter.status)
-    || !(promoter.createdAt instanceof Timestamp)
-    || !(promoter.updatedAt instanceof Timestamp)
-    || !hasExactSchema
-  ) {
-    throw new Error('Hosted E2E Promoter fixture is conflicting; refusing writes.');
+for (const [index, fixture] of PROMO_FIXTURES.entries()) {
+  const existingPromoter = existingPromoters[index];
+  if (existingPromoter.exists) {
+    const promoter = existingPromoter.data();
+    const hasExactSchema = Object.keys(promoter).sort().join(',')
+      === ['createdAt', 'name', 'status', 'updatedAt'].join(',');
+    if (
+      promoter.name !== fixture.promoterName
+      || !FIXTURE_STATUSES.has(promoter.status)
+      || !(promoter.createdAt instanceof Timestamp)
+      || !(promoter.updatedAt instanceof Timestamp)
+      || !hasExactSchema
+    ) {
+      throw new Error(`Promoter fixture ${fixture.promoterId} is conflicting; refusing writes.`);
+    }
   }
-}
 
-if (existingPromoCode.exists) {
-  const promoCode = existingPromoCode.data();
-  const hasExactSchema = Object.keys(promoCode).sort().join(',')
-    === ['createdAt', 'promoterId', 'status', 'updatedAt'].join(',');
-  if (
-    promoCode.promoterId !== PROMOTER_ID
-    || !FIXTURE_STATUSES.has(promoCode.status)
-    || !(promoCode.createdAt instanceof Timestamp)
-    || !(promoCode.updatedAt instanceof Timestamp)
-    || !hasExactSchema
-  ) {
-    throw new Error('Hosted E2E PromoCode fixture is conflicting; refusing writes.');
+  const existingPromoCode = existingPromoCodes[index];
+  if (existingPromoCode.exists) {
+    const promoCode = existingPromoCode.data();
+    const hasExactSchema = Object.keys(promoCode).sort().join(',')
+      === ['createdAt', 'promoterId', 'status', 'updatedAt'].join(',');
+    if (
+      promoCode.promoterId !== fixture.promoterId
+      || !FIXTURE_STATUSES.has(promoCode.status)
+      || !(promoCode.createdAt instanceof Timestamp)
+      || !(promoCode.updatedAt instanceof Timestamp)
+      || !hasExactSchema
+    ) {
+      throw new Error(`PromoCode fixture ${fixture.promoCodeId} is conflicting; refusing writes.`);
+    }
   }
 }
 
 function addPromoFixtureWrites(batch, now) {
-  batch.set(promoterRef, {
-    name: PROMOTER_NAME,
-    status: 'active',
-    createdAt: existingPromoter.data()?.createdAt ?? now,
-    updatedAt: now,
-  });
-  batch.set(promoCodeRef, {
-    promoterId: PROMOTER_ID,
-    status: 'active',
-    createdAt: existingPromoCode.data()?.createdAt ?? now,
-    updatedAt: now,
-  });
+  for (const [index, fixture] of PROMO_FIXTURES.entries()) {
+    batch.set(promoterRefs[index], {
+      name: fixture.promoterName,
+      status: 'active',
+      createdAt: existingPromoters[index].data()?.createdAt ?? now,
+      updatedAt: now,
+    });
+    batch.set(promoCodeRefs[index], {
+      promoterId: fixture.promoterId,
+      status: 'active',
+      createdAt: existingPromoCodes[index].data()?.createdAt ?? now,
+      updatedAt: now,
+    });
+  }
+}
+
+function logPromoFixtures() {
+  console.log('Promoters:');
+  for (const { promoterId } of PROMO_FIXTURES) console.log(`- ${promoterId}`);
+  console.log('PromoCodes:');
+  for (const { promoCodeId } of PROMO_FIXTURES) console.log(`- ${promoCodeId}`);
+  console.log('NBAANT860 skipped because owner is unconfirmed.');
 }
 
 async function runPromoOnlySeed() {
@@ -120,8 +149,7 @@ async function runPromoOnlySeed() {
 
   console.log(`Firebase project ID: ${PROJECT_ID}`);
   console.log('Promo-only mode: yes');
-  console.log(`Promoter ID: ${PROMOTER_ID}`);
-  console.log(`PromoCode: ${PROMO_CODE_ID}`);
+  logPromoFixtures();
   console.log('Promo fixture writes completed.');
 }
 
@@ -275,8 +303,7 @@ console.log(`Tier ID: ${TIER_ID}`);
 console.log(`LeagueStart ID: ${LEAGUE_START_ID}`);
 console.log(`RegistrationOffering ID: ${OFFERING_ID}`);
 console.log(`League ID: ${LEAGUE_ID}`);
-console.log(`Promoter ID: ${PROMOTER_ID}`);
-console.log(`PromoCode: ${PROMO_CODE_ID}`);
+logPromoFixtures();
 console.log('Promo fixture writes completed.');
 console.log('Hosted development fixture writes completed.');
 console.log('Registration and payment lifecycle documents are intentionally absent.');
