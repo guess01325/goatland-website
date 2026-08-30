@@ -190,7 +190,7 @@ async function seedFixture({ league1 = {}, league2 = {}, registrations = [] } = 
 
   for (const {
     label,
-    leagueId = LEAGUE_1_ID,
+    leagueId = null,
     acquisitionSource = 'facebook',
     acquisitionSourceOther = null,
   } of registrations) {
@@ -345,7 +345,7 @@ function clientRegistrationData(label, acquisition = {
   return {
     playerId: identities[label].uid,
     registrationOfferingId: OFFERING_ID,
-    leagueId: LEAGUE_1_ID,
+    leagueId: null,
     status: 'pending_payment',
     competitionRulesVersionAccepted: 'competition-rules-2026-08-29-v1',
     competitionRulesAcceptedAt: timestamp,
@@ -503,6 +503,7 @@ test('Registration policy authority P1-P20', async (t) => {
     await createAsClient();
     const current = await state('a');
     assert.equal(current.registration.status, 'pending_payment');
+    assert.equal(current.registration.leagueId, null);
     assert.equal(current.registration.competitionRulesVersionAccepted, 'competition-rules-2026-08-29-v1');
     assert.equal(current.registration.refundPolicyVersionAccepted, 'refund-policy-2026-08-29-v1');
     assert.equal(current.roster.length, 0);
@@ -526,14 +527,14 @@ test('Registration policy authority P1-P20', async (t) => {
     });
   }
 
-  await t.test('P6-P7 current pending League and acquisition updates still work', async () => {
+  await t.test('P6-P7 pending acquisition updates work but client League updates are denied', async () => {
     await seedFixture({ registrations: [{ label: 'a' }] });
-    await updateLeagueAsClient('a', LEAGUE_2_ID);
+    await assert.rejects(updateLeagueAsClient('a', LEAGUE_2_ID));
     await updateAcquisitionAsClient('a', {
       acquisitionSource: 'other', acquisitionSourceOther: 'Community event',
     });
-    const registration = (await state('a', LEAGUE_2_ID)).registration;
-    assert.equal(registration.leagueId, LEAGUE_2_ID);
+    const registration = (await state('a')).registration;
+    assert.equal(registration.leagueId, null);
     assert.equal(registration.acquisitionSourceOther, 'Community event');
   });
 
@@ -698,7 +699,7 @@ test('Registration policy authority P1-P20', async (t) => {
     await prepareClientCreation();
     await createAsClient();
     await assert.rejects(createAsClient({ leagueId: LEAGUE_2_ID }));
-    assert.equal((await state('a')).registration.leagueId, LEAGUE_1_ID);
+    assert.equal((await state('a')).registration.leagueId, null);
   });
 
   await t.test('P16 cross-offering League creation is rejected', async () => {
@@ -707,9 +708,10 @@ test('Registration policy authority P1-P20', async (t) => {
     await assert.rejects(createAsClient({ leagueId: OTHER_LEAGUE_ID }));
   });
 
-  await t.test('P17 creation against a non-open League is rejected', async () => {
+  await t.test('P17 creation is independent of internal League status', async () => {
     await prepareClientCreation({ league1: { status: 'closed' } });
-    await assert.rejects(createAsClient());
+    await createAsClient();
+    assert.equal((await state('a')).registration.leagueId, null);
   });
 
   await t.test('P18 creation after the registration window closes is rejected', async () => {
@@ -938,7 +940,7 @@ test('Backend-authoritative Checkout resume RES1-RES15 and expiration EXP1-EXP7'
 });
 
 test('SeatHold emulator lifecycle A-L', async (t) => {
-  await t.test('A. final-seat concurrency', async () => {
+  await t.test('A. final-seat concurrency spills atomically into League 2', async () => {
     await seedFixture({
       league1: { confirmedCount: 15, lastAssignedRegistrationOrder: 15 },
       registrations: [{ label: 'a' }, { label: 'b' }],
@@ -950,13 +952,21 @@ test('SeatHold emulator lifecycle A-L', async (t) => {
       checkout('a', REQUEST_IDS[0]),
       checkout('b', REQUEST_IDS[1]),
     ]);
-    assert.equal(results.filter(({ status }) => status === 'fulfilled').length, 1);
-    assert.equal(results.filter(({ status }) => status === 'rejected').length, 1);
-    assert.equal(stripe.createCount, 1);
-    const league = (await db.collection('leagues').doc(LEAGUE_1_ID).get()).data();
-    assert.equal(league.confirmedCount, 15);
-    assert.equal(league.activeHoldCount, 1);
-    assert.equal((await documents('seatHolds')).length, 1);
+    assert.equal(results.filter(({ status }) => status === 'fulfilled').length, 2);
+    assert.equal(stripe.createCount, 2);
+    const [league1, league2, holds] = await Promise.all([
+      db.collection('leagues').doc(LEAGUE_1_ID).get(),
+      db.collection('leagues').doc(LEAGUE_2_ID).get(),
+      documents('seatHolds'),
+    ]);
+    assert.deepEqual(
+      [league1.data().activeHoldCount, league2.data().activeHoldCount],
+      [1, 1],
+    );
+    assert.deepEqual(new Set(holds.map(({ leagueId }) => leagueId)), new Set([
+      LEAGUE_1_ID,
+      LEAGUE_2_ID,
+    ]));
   });
 
   await t.test('B. same-registration checkout concurrency', async () => {
@@ -1173,11 +1183,13 @@ test('SeatHold emulator lifecycle A-L', async (t) => {
     assert.equal(league.confirmedCount, 16);
     assert.equal(league.activeHoldCount, 0);
     assert.equal(league.status, 'full');
-    await assert.rejects(checkout('b', REQUEST_IDS[1]));
-    assert.equal(stripe.createCount, 1);
+    const second = await checkout('b', REQUEST_IDS[1]);
+    const secondHold = (await db.collection('seatHolds').doc(second.paymentId).get()).data();
+    assert.equal(secondHold.leagueId, LEAGUE_2_ID);
+    assert.equal(stripe.createCount, 2);
   });
 
-  await t.test('L. two initial Leagues are independent', async () => {
+  await t.test('L. two initial Leagues still prefer the earliest available League', async () => {
     await seedFixture({
       league1: { confirmedCount: 2, lastAssignedRegistrationOrder: 2 },
       league2: { confirmedCount: 5, lastAssignedRegistrationOrder: 5 },
@@ -1203,20 +1215,22 @@ test('SeatHold emulator lifecycle A-L', async (t) => {
     ]);
     assert.deepEqual(
       [league1.data().confirmedCount, league1.data().activeHoldCount, league1.data().lastAssignedRegistrationOrder],
-      [3, 0, 3],
+      [4, 0, 4],
     );
     assert.deepEqual(
       [league2.data().confirmedCount, league2.data().activeHoldCount, league2.data().lastAssignedRegistrationOrder],
-      [6, 0, 6],
+      [5, 0, 5],
     );
     const [roster1, roster2] = await Promise.all([
       db.collection('leagues').doc(LEAGUE_1_ID).collection('publicRoster').get(),
       db.collection('leagues').doc(LEAGUE_2_ID).collection('publicRoster').get(),
     ]);
-    assert.equal(roster1.size, 1);
-    assert.equal(roster2.size, 1);
-    assert.equal(roster1.docs[0].data().registrationOrder, 3);
-    assert.equal(roster2.docs[0].data().registrationOrder, 6);
+    assert.equal(roster1.size, 2);
+    assert.equal(roster2.size, 0);
+    assert.deepEqual(
+      roster1.docs.map((doc) => doc.data().registrationOrder).sort((a, b) => a - b),
+      [3, 4],
+    );
   });
 });
 
@@ -1552,413 +1566,450 @@ test('Acquisition source lifecycle A1-A28', async (t) => {
   });
 });
 
-test('Pending Registration sibling League switching L1-L30', async (t) => {
-  await t.test('L1 pending Registration without a lock switches sibling Leagues', async () => {
+test('Automatic League assignment AL1-AL16 and successors S17-S24/S26', async (t) => {
+  await t.test('AL1 new client Registration stores leagueId null', async () => {
     await seedFixture({ registrations: [{ label: 'a' }] });
-    await updateLeagueAsClient('a', LEAGUE_2_ID);
+    await db.collection('registrations').doc(registrationId('a')).delete();
+    await withClient('a', (firestore) => setDoc(
+      doc(firestore, 'registrations', registrationId('a')),
+      clientRegistrationData('a'),
+    ));
+    assert.equal((await state('a')).registration.leagueId, null);
+  });
+
+  await t.test('AL2 client cannot create a Registration with arbitrary leagueId', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    await db.collection('registrations').doc(registrationId('a')).delete();
+    await assert.rejects(withClient('a', (firestore) => setDoc(
+      doc(firestore, 'registrations', registrationId('a')),
+      clientRegistrationData('a', undefined, { leagueId: LEAGUE_2_ID }),
+    )));
+    assert.equal((await db.collection('registrations').doc(registrationId('a')).get()).exists, false);
+  });
+
+  await t.test('AL3 client cannot mutate leagueId after creation', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    await assert.rejects(updateLeagueAsClient('a', LEAGUE_2_ID));
+    assert.equal((await state('a')).registration.leagueId, null);
+  });
+
+  await t.test('AL4 S26 League 1 at 12/16 remains the earliest assignment target', async () => {
+    await seedFixture({
+      league1: { confirmedCount: 12, lastAssignedRegistrationOrder: 12 },
+      registrations: [{ label: 'a' }],
+    });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const issued = await checkout('a');
+    const current = await state('a');
+    assert.equal(current.registration.leagueId, LEAGUE_1_ID);
+    assert.equal(current.holds.find(({ id }) => id === issued.paymentId).leagueId, LEAGUE_1_ID);
+    assert.deepEqual(
+      [(await db.collection('leagues').doc(LEAGUE_1_ID).get()).data().activeHoldCount,
+        (await db.collection('leagues').doc(LEAGUE_2_ID).get()).data().activeHoldCount],
+      [1, 0],
+    );
+  });
+
+  await t.test('AL5 effective 16/16 League 1 assigns League 2', async () => {
+    await seedFixture({
+      league1: { confirmedCount: 15, activeHoldCount: 1, lastAssignedRegistrationOrder: 15 },
+      registrations: [{ label: 'a' }],
+    });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const issued = await checkout('a');
+    const hold = (await db.collection('seatHolds').doc(issued.paymentId).get()).data();
+    assert.equal(hold.leagueId, LEAGUE_2_ID);
     assert.equal((await state('a')).registration.leagueId, LEAGUE_2_ID);
   });
 
-  await t.test('L2 destination League must exist and be open for the same offering', async () => {
-    await seedFixture({ league2: { status: 'closed' }, registrations: [{ label: 'a' }] });
-    await assert.rejects(updateLeagueAsClient('a', LEAGUE_2_ID));
-    await assert.rejects(updateLeagueAsClient('a', `${OFFERING_ID}__league-99`));
-    assert.equal((await state('a')).registration.leagueId, LEAGUE_1_ID);
-  });
-
-  await t.test('L3 League under another offering is rejected', async () => {
-    await seedFixture({ registrations: [{ label: 'a' }] });
-    await seedOtherOfferingLeague();
-    await assert.rejects(updateLeagueAsClient('a', OTHER_LEAGUE_ID));
-    assert.equal((await state('a')).registration.leagueId, LEAGUE_1_ID);
-  });
-
-  await t.test('L4 registrationOfferingId cannot change', async () => {
-    await seedFixture({ registrations: [{ label: 'a' }] });
-    await seedOtherOfferingLeague();
-    await assert.rejects(withClient('a', (firestore) => updateDoc(
-      doc(firestore, 'registrations', registrationId('a')),
-      {
-        registrationOfferingId: OTHER_OFFERING_ID,
-        leagueId: OTHER_LEAGUE_ID,
-        updatedAt: serverTimestamp(),
-      },
-    )));
-    assert.equal((await state('a')).registration.registrationOfferingId, OFFERING_ID);
-  });
-
-  await t.test('L5 only leagueId and updatedAt may change', async () => {
-    await seedFixture({ registrations: [{ label: 'a' }] });
-    await assert.rejects(withClient('a', (firestore) => updateDoc(
-      doc(firestore, 'registrations', registrationId('a')),
-      { leagueId: LEAGUE_2_ID, submittedAt: serverTimestamp(), updatedAt: serverTimestamp() },
-    )));
-    assert.equal((await state('a')).registration.leagueId, LEAGUE_1_ID);
-  });
-
-  await t.test('L6 active checkout lock blocks League switch', async () => {
-    await seedFixture({ registrations: [{ label: 'a' }] });
-    const stripe = new FakeStripe();
-    setStripeForEmulatorTests(stripe);
-    await activate('a');
-    await assert.rejects(updateLeagueAsClient('a', LEAGUE_2_ID));
-    const current = await state('a');
-    assert.equal(current.registration.leagueId, LEAGUE_1_ID);
-    assert.equal(current.holds[0].leagueId, LEAGUE_1_ID);
-  });
-
-  await t.test('L7 provisioning indeterminate lock blocks League switch', async () => {
-    await seedFixture({ registrations: [{ label: 'a' }] });
-    const stripe = new FakeStripe();
-    stripe.creationError = Object.assign(new Error('indeterminate failure'), {
-      type: 'StripeConnectionError',
-    });
-    setStripeForEmulatorTests(stripe);
-    await assert.rejects(checkout('a'));
-    await assert.rejects(updateLeagueAsClient('a', LEAGUE_2_ID));
-    const current = await state('a');
-    assert.equal(current.lock.exists, true);
-    assert.equal(current.holds[0].status, 'provisioning');
-    assert.equal(current.registration.leagueId, current.holds[0].leagueId);
-  });
-
-  await t.test('L8 provider-confirmed expiration permits League switch', async () => {
-    await seedFixture({ registrations: [{ label: 'a' }] });
-    const stripe = new FakeStripe();
-    setStripeForEmulatorTests(stripe);
-    const { payment } = await activate('a');
-    await expireCheckout(
-      stripeEvent('evt_league_l8', 'checkout.session.expired'),
-      stripe.sessions.get(payment.providerCheckoutSessionId),
-    );
-    await updateLeagueAsClient('a', LEAGUE_2_ID);
-    const current = await state('a');
-    assert.equal(current.lock.exists, false);
-    assert.equal(current.registration.leagueId, LEAGUE_2_ID);
-  });
-
-  await t.test('L9 definite Stripe failure cleanup permits League switch', async () => {
-    await seedFixture({ registrations: [{ label: 'a' }] });
-    const stripe = new FakeStripe();
-    stripe.creationError = Object.assign(new Error('definite failure'), {
-      type: 'StripeInvalidRequestError',
-    });
-    setStripeForEmulatorTests(stripe);
-    await assert.rejects(checkout('a'));
-    await updateLeagueAsClient('a', LEAGUE_2_ID);
-    const current = await state('a');
-    assert.equal(current.lock.exists, false);
-    assert.equal(current.holds[0].status, 'released');
-    assert.equal(current.registration.leagueId, LEAGUE_2_ID);
-  });
-
-  await t.test('L10 confirmed Registration cannot switch', async () => {
-    await seedFixture({ registrations: [{ label: 'a' }] });
-    const stripe = new FakeStripe();
-    setStripeForEmulatorTests(stripe);
-    const { payment } = await activate('a');
-    await fulfillSuccessfulCheckout(
-      stripeEvent('evt_league_l10', 'checkout.session.completed'),
-      paidSession(stripe, payment.providerCheckoutSessionId),
-    );
-    await assert.rejects(updateLeagueAsClient('a', LEAGUE_2_ID));
-    assert.equal((await state('a')).registration.leagueId, LEAGUE_1_ID);
-  });
-
-  await t.test('L11 cancelled Registration cannot switch', async () => {
-    await seedFixture({ registrations: [{ label: 'a' }] });
-    await cancelAsClient('a');
-    await assert.rejects(updateLeagueAsClient('a', LEAGUE_2_ID));
-    const registration = (await state('a')).registration;
-    assert.equal(registration.status, 'cancelled');
-    assert.equal(registration.leagueId, LEAGUE_1_ID);
-  });
-
-  await t.test('L12 League switch and cancellation cannot share a write', async () => {
-    await seedFixture({ registrations: [{ label: 'a' }] });
-    await assert.rejects(withClient('a', (firestore) => {
-      const timestamp = serverTimestamp();
-      return updateDoc(doc(firestore, 'registrations', registrationId('a')), {
-        leagueId: LEAGUE_2_ID,
-        status: 'cancelled',
-        cancelledAt: timestamp,
-        updatedAt: timestamp,
+  for (const [status, counters] of [
+    ['full', { confirmedCount: 16, lastAssignedRegistrationOrder: 16 }],
+    ['closed', {}],
+  ]) {
+    await t.test(`AL6 ${status} lower-number League is skipped`, async () => {
+      await seedFixture({
+        league1: { status, ...counters },
+        registrations: [{ label: 'a' }],
       });
-    }));
-    assert.equal((await state('a')).registration.status, 'pending_payment');
-  });
+      const stripe = new FakeStripe();
+      setStripeForEmulatorTests(stripe);
+      const issued = await checkout('a');
+      assert.equal(
+        (await db.collection('seatHolds').doc(issued.paymentId).get()).data().leagueId,
+        LEAGUE_2_ID,
+      );
+    });
+  }
 
-  await t.test('L13 League switch and acquisition change cannot share a write', async () => {
-    await seedFixture({ registrations: [{ label: 'a' }] });
-    await assert.rejects(withClient('a', (firestore) => updateDoc(
-      doc(firestore, 'registrations', registrationId('a')),
-      {
-        leagueId: LEAGUE_2_ID,
-        acquisitionSource: 'instagram',
-        acquisitionSourceOther: null,
-        updatedAt: serverTimestamp(),
-      },
+  await t.test('AL7 concurrent final-seat attempts split across League 1 and League 2', async () => {
+    await seedFixture({
+      league1: { confirmedCount: 15, lastAssignedRegistrationOrder: 15 },
+      registrations: [{ label: 'a' }, { label: 'b' }],
+    });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const attempts = await Promise.all([
+      checkout('a', REQUEST_IDS[0]),
+      checkout('b', REQUEST_IDS[1]),
+    ]);
+    const holds = await Promise.all(attempts.map(({ paymentId }) => (
+      db.collection('seatHolds').doc(paymentId).get()
     )));
-    assert.equal((await state('a')).registration.leagueId, LEAGUE_1_ID);
+    assert.deepEqual(
+      new Set(holds.map((snapshot) => snapshot.data().leagueId)),
+      new Set([LEAGUE_1_ID, LEAGUE_2_ID]),
+    );
+    assert.deepEqual(
+      [(await db.collection('leagues').doc(LEAGUE_1_ID).get()).data().activeHoldCount,
+        (await db.collection('leagues').doc(LEAGUE_2_ID).get()).data().activeHoldCount],
+      [1, 1],
+    );
   });
 
-  await t.test('L14 League switch cannot change promo or policy fields', async () => {
-    for (const extra of [
-      { promoCodeId: 'NIGHTFLIGHT' },
-      { competitionRulesVersionAccepted: 'changed-rules' },
-      { refundPolicyVersionAccepted: 'changed-refund' },
-    ]) {
-      await seedFixture({ registrations: [{ label: 'a' }] });
-      await assert.rejects(withClient('a', (firestore) => updateDoc(
-        doc(firestore, 'registrations', registrationId('a')),
-        { leagueId: LEAGUE_2_ID, ...extra, updatedAt: serverTimestamp() },
-      )));
-      assert.equal((await state('a')).registration.leagueId, LEAGUE_1_ID);
+  await t.test('AL8 higher concurrency never exceeds effective capacity', async () => {
+    await seedFixture({
+      league1: { confirmedCount: 15, lastAssignedRegistrationOrder: 15 },
+      registrations: [{ label: 'a' }, { label: 'b' }, { label: 'c' }],
+    });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    await Promise.all([
+      checkout('a', REQUEST_IDS[0]),
+      checkout('b', REQUEST_IDS[1]),
+      checkout('c', REQUEST_IDS[2]),
+    ]);
+    for (const leagueId of [LEAGUE_1_ID, LEAGUE_2_ID]) {
+      const league = (await db.collection('leagues').doc(leagueId).get()).data();
+      assert.ok(league.confirmedCount + league.activeHoldCount <= league.capacity);
     }
   });
 
-  await t.test('L15 update-first checkout reserves the newly selected League', async () => {
-    await seedFixture({ registrations: [{ label: 'a' }] });
-    await updateLeagueAsClient('a', LEAGUE_2_ID);
+  await t.test('AL9 no availability produces no partial lifecycle or counter writes', async () => {
+    await seedFixture({
+      league1: {
+        status: 'full', confirmedCount: 16, lastAssignedRegistrationOrder: 16,
+      },
+      league2: {
+        status: 'full', confirmedCount: 16, lastAssignedRegistrationOrder: 16,
+      },
+      registrations: [{ label: 'a' }],
+    });
     const stripe = new FakeStripe();
     setStripeForEmulatorTests(stripe);
-    const { result, payment } = await activate('a');
-    const current = await state('a', LEAGUE_2_ID);
-    assert.equal(current.registration.leagueId, LEAGUE_2_ID);
-    assert.equal(current.holds[0].leagueId, LEAGUE_2_ID);
-    assert.equal(current.holds[0].paymentId, result.paymentId);
-    assert.equal(payment.registrationId, registrationId('a'));
-    assert.equal(stripe.sessions.get(payment.providerCheckoutSessionId).metadata.leagueId, LEAGUE_2_ID);
+    await assert.rejects(checkout('a'));
+    const current = await state('a');
+    assert.equal(current.registration.leagueId, null);
+    assert.equal(current.holds.length, 0);
+    assert.equal(current.payments.length, 0);
+    assert.equal(current.lock.exists, false);
+    assert.equal(stripe.createCount, 0);
+    assert.deepEqual(
+      [(await db.collection('leagues').doc(LEAGUE_1_ID).get()).data().activeHoldCount,
+        (await db.collection('leagues').doc(LEAGUE_2_ID).get()).data().activeHoldCount],
+      [0, 0],
+    );
+  });
+
+  await t.test('AL10 assignment is isolated to the trusted RegistrationOffering', async () => {
+    await seedFixture({
+      league1: {
+        status: 'full', confirmedCount: 16, lastAssignedRegistrationOrder: 16,
+      },
+      league2: {
+        status: 'full', confirmedCount: 16, lastAssignedRegistrationOrder: 16,
+      },
+      registrations: [{ label: 'a' }],
+    });
+    await seedOtherOfferingLeague({ confirmedCount: 2, lastAssignedRegistrationOrder: 2 });
+    const before = (await db.collection('leagues').doc(OTHER_LEAGUE_ID).get()).data();
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    await assert.rejects(checkout('a'));
+    assert.deepEqual((await db.collection('leagues').doc(OTHER_LEAGUE_ID).get()).data(), before);
+    assert.equal((await state('a')).registration.leagueId, null);
+  });
+
+  await t.test('AL11 same UUID retry preserves assignment and increments once', async () => {
+    await seedFixture({ registrations: [{ label: 'a' }] });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const first = await checkout('a', REQUEST_IDS[0]);
+    const retry = await checkout('a', REQUEST_IDS[0]);
+    assert.deepEqual(retry, first);
+    const current = await state('a');
+    assert.equal(current.registration.leagueId, LEAGUE_1_ID);
+    assert.equal(current.holds.length, 1);
     assert.equal(current.league.activeHoldCount, 1);
   });
 
-  await t.test('L16 lock-first checkout freezes the current League', async () => {
+  await t.test('AL12 new UUID active-lock resume preserves assignment', async () => {
     await seedFixture({ registrations: [{ label: 'a' }] });
     const stripe = new FakeStripe();
     setStripeForEmulatorTests(stripe);
-    await activate('a');
-    await assert.rejects(updateLeagueAsClient('a', LEAGUE_2_ID));
+    const first = await checkout('a', REQUEST_IDS[0]);
+    await db.collection('leagues').doc(LEAGUE_1_ID).update({
+      status: 'closed',
+      updatedAt: Timestamp.now(),
+    });
+    const resumed = await checkout('a', REQUEST_IDS[1]);
+    assert.deepEqual(resumed, first);
     const current = await state('a');
     assert.equal(current.registration.leagueId, LEAGUE_1_ID);
     assert.equal(current.holds[0].leagueId, LEAGUE_1_ID);
-  });
-
-  await t.test('L17 concurrent switch and checkout never leave mismatched active state', async () => {
-    await seedFixture({ registrations: [{ label: 'a' }] });
-    const stripe = new FakeStripe();
-    setStripeForEmulatorTests(stripe);
-    await Promise.allSettled([
-      updateLeagueAsClient('a', LEAGUE_2_ID),
-      checkout('a'),
-    ]);
-    const current = await state('a');
-    for (const hold of current.holds.filter(({ status }) => ['provisioning', 'active'].includes(status))) {
-      assert.equal(hold.leagueId, current.registration.leagueId);
-    }
-  });
-
-  await t.test('L18 expiration then fresh attempt creates League 2 records', async () => {
-    await seedFixture({ registrations: [{ label: 'a' }] });
-    const stripe = new FakeStripe();
-    setStripeForEmulatorTests(stripe);
-    const first = await activate('a', REQUEST_IDS[0]);
-    await expireCheckout(
-      stripeEvent('evt_league_l18', 'checkout.session.expired'),
-      stripe.sessions.get(first.payment.providerCheckoutSessionId),
-    );
-    await updateLeagueAsClient('a', LEAGUE_2_ID);
-    const second = await activate('a', REQUEST_IDS[1]);
-    const current = await state('a', LEAGUE_2_ID);
-    const newHold = current.holds.find(({ paymentId }) => paymentId === second.result.paymentId);
-    assert.equal(newHold.leagueId, LEAGUE_2_ID);
-    assert.equal(newHold.status, 'active');
     assert.equal(current.league.activeHoldCount, 1);
   });
 
-  await t.test('L19 definite failure then fresh attempt creates League 2 records', async () => {
-    await seedFixture({ registrations: [{ label: 'a' }] });
-    const stripe = new FakeStripe();
-    stripe.creationError = Object.assign(new Error('definite failure'), {
-      type: 'StripeInvalidRequestError',
-    });
-    setStripeForEmulatorTests(stripe);
-    await assert.rejects(checkout('a', REQUEST_IDS[0]));
-    await updateLeagueAsClient('a', LEAGUE_2_ID);
-    stripe.creationError = null;
-    const second = await activate('a', REQUEST_IDS[1]);
-    const current = await state('a', LEAGUE_2_ID);
-    const newHold = current.holds.find(({ paymentId }) => paymentId === second.result.paymentId);
-    assert.equal(newHold.leagueId, LEAGUE_2_ID);
-    assert.equal(newHold.status, 'active');
-  });
-
-  await t.test('L20 old checkoutRequestId cannot be reused after switch', async () => {
+  await t.test('AL13 AL14 expired attempt can reassign while history stays on its original League', async () => {
     await seedFixture({ registrations: [{ label: 'a' }] });
     const stripe = new FakeStripe();
     setStripeForEmulatorTests(stripe);
     const first = await activate('a', REQUEST_IDS[0]);
     await expireCheckout(
-      stripeEvent('evt_league_l20', 'checkout.session.expired'),
+      stripeEvent('evt_assignment_expired', 'checkout.session.expired'),
       stripe.sessions.get(first.payment.providerCheckoutSessionId),
     );
-    await updateLeagueAsClient('a', LEAGUE_2_ID);
-    await assert.rejects(checkout('a', REQUEST_IDS[0]));
-    assert.equal((await state('a', LEAGUE_2_ID)).league.activeHoldCount, 0);
-  });
-
-  await t.test('L21 historical Payment and SeatHold remain attached to League 1', async () => {
-    await seedFixture({ registrations: [{ label: 'a' }] });
-    const stripe = new FakeStripe();
-    setStripeForEmulatorTests(stripe);
-    const first = await activate('a');
-    await expireCheckout(
-      stripeEvent('evt_league_l21', 'checkout.session.expired'),
-      stripe.sessions.get(first.payment.providerCheckoutSessionId),
-    );
-    await updateLeagueAsClient('a', LEAGUE_2_ID);
-    const current = await state('a');
-    const oldHold = current.holds.find(({ paymentId }) => paymentId === first.result.paymentId);
-    const oldPayment = current.payments.find(({ id }) => id === first.result.paymentId);
-    assert.equal(oldHold.leagueId, LEAGUE_1_ID);
-    assert.equal(oldHold.status, 'expired');
-    assert.equal(oldPayment.status, 'expired');
+    await db.collection('leagues').doc(LEAGUE_1_ID).update({
+      status: 'full',
+      confirmedCount: 16,
+      lastAssignedRegistrationOrder: 16,
+      updatedAt: Timestamp.now(),
+    });
+    const second = await activate('a', REQUEST_IDS[1]);
+    const current = await state('a', LEAGUE_2_ID);
+    const historicalHold = current.holds.find(({ id }) => id === first.result.paymentId);
+    const historicalPayment = current.payments.find(({ id }) => id === first.result.paymentId);
     assert.equal(current.registration.leagueId, LEAGUE_2_ID);
+    assert.equal(current.holds.find(({ id }) => id === second.result.paymentId).leagueId, LEAGUE_2_ID);
+    assert.equal(historicalHold.leagueId, LEAGUE_1_ID);
+    assert.equal(historicalHold.status, 'expired');
+    assert.equal(historicalPayment.status, 'expired');
   });
 
-  await t.test('L22 late historical League 1 completion cannot mutate League 2 selection', async () => {
+  await t.test('AL15 confirmed Registration cannot be moved or checked out again', async () => {
     await seedFixture({ registrations: [{ label: 'a' }] });
-    const stripe = new FakeStripe();
-    setStripeForEmulatorTests(stripe);
-    const first = await activate('a');
-    const historicalSession = stripe.sessions.get(first.payment.providerCheckoutSessionId);
-    await expireCheckout(
-      stripeEvent('evt_league_l22_expired', 'checkout.session.expired'),
-      historicalSession,
-    );
-    await updateLeagueAsClient('a', LEAGUE_2_ID);
-    const before = await state('a');
-    const league2Before = (await db.collection('leagues').doc(LEAGUE_2_ID).get()).data();
-    await assert.rejects(expireCheckout(
-      stripeEvent('evt_league_l22_late_expired', 'checkout.session.expired'),
-      historicalSession,
-    ));
-    await assert.rejects(fulfillSuccessfulCheckout(
-      stripeEvent('evt_league_l22_late_paid', 'checkout.session.completed'),
-      paidSession(stripe, first.payment.providerCheckoutSessionId),
-    ));
-    const after = await state('a');
-    const league2After = (await db.collection('leagues').doc(LEAGUE_2_ID).get()).data();
-    assert.equal(after.registration.leagueId, LEAGUE_2_ID);
-    assert.deepEqual(after.league, before.league);
-    assert.deepEqual(league2After, league2Before);
-    assert.equal(after.roster.length, 0);
-    assert.equal((await db.collection('leagues').doc(LEAGUE_2_ID).collection('publicRoster').get()).size, 0);
-  });
-
-  await t.test('L23 pending switch creates no public roster rows', async () => {
-    await seedFixture({ registrations: [{ label: 'a' }] });
-    await updateLeagueAsClient('a', LEAGUE_2_ID);
-    const [first, second] = await Promise.all([
-      db.collection('leagues').doc(LEAGUE_1_ID).collection('publicRoster').get(),
-      db.collection('leagues').doc(LEAGUE_2_ID).collection('publicRoster').get(),
-    ]);
-    assert.equal(first.size, 0);
-    assert.equal(second.size, 0);
-  });
-
-  await t.test('L24 successful new League 2 checkout creates only League 2 roster', async () => {
-    await seedFixture({ registrations: [{ label: 'a' }] });
-    await updateLeagueAsClient('a', LEAGUE_2_ID);
     const stripe = new FakeStripe();
     setStripeForEmulatorTests(stripe);
     const { payment } = await activate('a');
     await fulfillSuccessfulCheckout(
-      stripeEvent('evt_league_l24', 'checkout.session.completed'),
+      stripeEvent('evt_assignment_confirmed', 'checkout.session.completed'),
       paidSession(stripe, payment.providerCheckoutSessionId),
     );
-    const [first, second] = await Promise.all([
-      db.collection('leagues').doc(LEAGUE_1_ID).collection('publicRoster').get(),
-      db.collection('leagues').doc(LEAGUE_2_ID).collection('publicRoster').get(),
-    ]);
-    assert.equal(first.size, 0);
-    assert.equal(second.size, 1);
-  });
-
-  await t.test('L25 acquisition fields are preserved by League switch', async () => {
-    await seedFixture({
-      registrations: [{
-        label: 'a', acquisitionSource: 'other', acquisitionSourceOther: 'Local event',
-      }],
-    });
-    await updateLeagueAsClient('a', LEAGUE_2_ID);
-    const registration = (await state('a')).registration;
-    assert.equal(registration.acquisitionSource, 'other');
-    assert.equal(registration.acquisitionSourceOther, 'Local event');
-  });
-
-  await t.test('L26 locked promo snapshots are preserved by League switch', async () => {
-    await seedFixture({ registrations: [{ label: 'a' }] });
-    const reference = db.collection('registrations').doc(registrationId('a'));
-    await reference.update({
-      promoCodeId: 'NIGHTFLIGHT',
-      promoCodeSnapshot: 'NIGHTFLIGHT',
-      promoterIdSnapshot: 'promoter-nightflight',
-    });
-    await updateLeagueAsClient('a', LEAGUE_2_ID);
-    const registration = (await reference.get()).data();
-    assert.deepEqual(
-      [registration.promoCodeId, registration.promoCodeSnapshot, registration.promoterIdSnapshot],
-      ['NIGHTFLIGHT', 'NIGHTFLIGHT', 'promoter-nightflight'],
-    );
-  });
-
-  await t.test('L27 policy acceptance is preserved by League switch', async () => {
-    await seedFixture({ registrations: [{ label: 'a' }] });
-    const before = (await state('a')).registration;
-    await updateLeagueAsClient('a', LEAGUE_2_ID);
-    const after = (await state('a')).registration;
-    for (const key of [
-      'competitionRulesVersionAccepted',
-      'competitionRulesAcceptedAt',
-      'refundPolicyVersionAccepted',
-      'refundPolicyAcceptedAt',
-    ]) {
-      assert.deepEqual(after[key], before[key]);
-    }
-  });
-
-  await t.test('L28 alternate Registration ID cannot bypass offering uniqueness', async () => {
-    await seedFixture({ registrations: [{ label: 'a' }] });
-    await assert.rejects(withClient('a', (firestore) => setDoc(
-      doc(firestore, 'registrations', `${identities.a.uid}|${LEAGUE_2_ID}`),
-      { ...clientRegistrationData('a'), leagueId: LEAGUE_2_ID },
-    )));
-    assert.equal((await db.collection('registrations').get()).size, 1);
-  });
-
-  await t.test('L29 legacy Registration cannot switch League', async () => {
-    await seedFixture({ registrations: [{ label: 'a' }] });
-    await db.collection('registrations').doc(registrationId('a')).update({
-      acquisitionSource: FieldValue.delete(),
-      acquisitionSourceOther: FieldValue.delete(),
-    });
     await assert.rejects(updateLeagueAsClient('a', LEAGUE_2_ID));
+    await assert.rejects(checkout('a', REQUEST_IDS[1]));
     assert.equal((await state('a')).registration.leagueId, LEAGUE_1_ID);
   });
 
-  await t.test('L30 legacy narrow cancellation remains allowed without a lock', async () => {
-    await seedFixture({ registrations: [{ label: 'a' }] });
-    await db.collection('registrations').doc(registrationId('a')).update({
-      acquisitionSource: FieldValue.delete(),
-      acquisitionSourceOther: FieldValue.delete(),
+  await t.test('AL16 active checkout Registration cannot be moved', async () => {
+    await seedFixture({ registrations: [{ label: 'a', leagueId: LEAGUE_2_ID }] });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const issued = await checkout('a');
+    await assert.rejects(updateLeagueAsClient('a', LEAGUE_2_ID));
+    const current = await state('a');
+    assert.equal(current.registration.leagueId, LEAGUE_1_ID);
+    assert.equal(current.holds.find(({ id }) => id === issued.paymentId).leagueId, LEAGUE_1_ID);
+  });
+
+  await t.test('S17 11 to 12 confirmed creates an exact open League 2', async () => {
+    await seedFixture({
+      league1: { confirmedCount: 11, lastAssignedRegistrationOrder: 11 },
+      registrations: [{ label: 'a' }],
     });
-    await cancelAsClient('a');
-    const registration = (await state('a')).registration;
-    assert.equal(registration.status, 'cancelled');
-    assert.equal('acquisitionSource' in registration, false);
-    assert.equal('acquisitionSourceOther' in registration, false);
+    await db.collection('leagues').doc(LEAGUE_2_ID).delete();
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const { payment } = await activate('a');
+    await fulfillSuccessfulCheckout(
+      stripeEvent('evt_successor_17', 'checkout.session.completed'),
+      paidSession(stripe, payment.providerCheckoutSessionId),
+    );
+    const successor = (await db.collection('leagues').doc(LEAGUE_2_ID).get()).data();
+    assert.deepEqual(
+      Object.fromEntries(Object.entries(successor).filter(([key]) => !['createdAt', 'updatedAt'].includes(key))),
+      {
+        registrationOfferingId: OFFERING_ID,
+        leagueNumber: 2,
+        capacity: 16,
+        status: 'open',
+        confirmedCount: 0,
+        activeHoldCount: 0,
+        lastAssignedRegistrationOrder: 0,
+      },
+    );
+    assert.ok(successor.createdAt instanceof Timestamp);
+    assert.ok(successor.updatedAt instanceof Timestamp);
+  });
+
+  await t.test('S18 below 12 confirmed does not create a successor', async () => {
+    await seedFixture({
+      league1: { confirmedCount: 10, lastAssignedRegistrationOrder: 10 },
+      registrations: [{ label: 'a' }],
+    });
+    await db.collection('leagues').doc(LEAGUE_2_ID).delete();
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const { payment } = await activate('a');
+    await fulfillSuccessfulCheckout(
+      stripeEvent('evt_successor_18', 'checkout.session.completed'),
+      paidSession(stripe, payment.providerCheckoutSessionId),
+    );
+    assert.equal((await db.collection('leagues').doc(LEAGUE_2_ID).get()).exists, false);
+  });
+
+  await t.test('S19 S21 an existing successor is validated and preserved without reopening', async () => {
+    await seedFixture({
+      league1: { confirmedCount: 11, lastAssignedRegistrationOrder: 11 },
+      league2: {
+        status: 'closed',
+        confirmedCount: 3,
+        activeHoldCount: 2,
+        lastAssignedRegistrationOrder: 5,
+      },
+      registrations: [{ label: 'a' }],
+    });
+    const before = (await db.collection('leagues').doc(LEAGUE_2_ID).get()).data();
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const { payment } = await activate('a');
+    await fulfillSuccessfulCheckout(
+      stripeEvent('evt_successor_19', 'checkout.session.completed'),
+      paidSession(stripe, payment.providerCheckoutSessionId),
+    );
+    assert.deepEqual((await db.collection('leagues').doc(LEAGUE_2_ID).get()).data(), before);
+  });
+
+  await t.test('S19b conflicting deterministic successor data fails closed', async () => {
+    await seedFixture({
+      league1: { confirmedCount: 11, lastAssignedRegistrationOrder: 11 },
+      league2: { capacity: 15 },
+      registrations: [{ label: 'a' }],
+    });
+    const successorBefore = (await db.collection('leagues').doc(LEAGUE_2_ID).get()).data();
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const { payment } = await activate('a');
+    await assert.rejects(fulfillSuccessfulCheckout(
+      stripeEvent('evt_successor_19b', 'checkout.session.completed'),
+      paidSession(stripe, payment.providerCheckoutSessionId),
+    ));
+    const current = await state('a');
+    assert.deepEqual(
+      [current.league.confirmedCount, current.league.activeHoldCount],
+      [11, 1],
+    );
+    assert.equal(current.registration.status, 'pending_payment');
+    assert.equal(current.payments[0].status, 'pending');
+    assert.equal(current.holds[0].status, 'active');
+    assert.deepEqual((await db.collection('leagues').doc(LEAGUE_2_ID).get()).data(), successorBefore);
+  });
+
+  await t.test('S20 concurrent threshold fulfillment creates exactly one League 2', async () => {
+    await seedFixture({
+      league1: { confirmedCount: 10, lastAssignedRegistrationOrder: 10 },
+      registrations: [{ label: 'a' }, { label: 'b' }],
+    });
+    await db.collection('leagues').doc(LEAGUE_2_ID).delete();
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const [first, second] = await Promise.all([
+      activate('a', REQUEST_IDS[0]),
+      activate('b', REQUEST_IDS[1]),
+    ]);
+    await Promise.all([
+      fulfillSuccessfulCheckout(
+        stripeEvent('evt_successor_20a', 'checkout.session.completed'),
+        paidSession(stripe, first.payment.providerCheckoutSessionId),
+      ),
+      fulfillSuccessfulCheckout(
+        stripeEvent('evt_successor_20b', 'checkout.session.completed'),
+        paidSession(stripe, second.payment.providerCheckoutSessionId),
+      ),
+    ]);
+    const successors = await db.collection('leagues')
+      .where('registrationOfferingId', '==', OFFERING_ID)
+      .get();
+    assert.equal(successors.docs.filter(({ id }) => id === LEAGUE_2_ID).length, 1);
+    assert.equal((await db.collection('leagues').doc(LEAGUE_1_ID).get()).data().confirmedCount, 12);
+  });
+
+  await t.test('S22 League 2 reaching 12 creates League 3', async () => {
+    const league3Id = `${OFFERING_ID}__league-3`;
+    await seedFixture({
+      league1: {
+        status: 'full', confirmedCount: 16, lastAssignedRegistrationOrder: 16,
+      },
+      league2: { confirmedCount: 11, lastAssignedRegistrationOrder: 11 },
+      registrations: [{ label: 'a' }],
+    });
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const { payment } = await activate('a');
+    await fulfillSuccessfulCheckout(
+      stripeEvent('evt_successor_22', 'checkout.session.completed'),
+      paidSession(stripe, payment.providerCheckoutSessionId),
+    );
+    const league3 = (await db.collection('leagues').doc(league3Id).get()).data();
+    assert.equal(league3.registrationOfferingId, OFFERING_ID);
+    assert.equal(league3.leagueNumber, 3);
+    assert.equal(league3.status, 'open');
+    assert.equal(league3.capacity, 16);
+  });
+
+  await t.test('S23 successor creation never crosses RegistrationOfferings', async () => {
+    await seedFixture({
+      league1: { confirmedCount: 11, lastAssignedRegistrationOrder: 11 },
+      registrations: [{ label: 'a' }],
+    });
+    await db.collection('leagues').doc(LEAGUE_2_ID).delete();
+    await seedOtherOfferingLeague({ confirmedCount: 11, lastAssignedRegistrationOrder: 11 });
+    const otherSuccessorId = `${OTHER_OFFERING_ID}__league-2`;
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const { payment } = await activate('a');
+    await fulfillSuccessfulCheckout(
+      stripeEvent('evt_successor_23', 'checkout.session.completed'),
+      paidSession(stripe, payment.providerCheckoutSessionId),
+    );
+    assert.equal((await db.collection('leagues').doc(LEAGUE_2_ID).get()).exists, true);
+    assert.equal((await db.collection('leagues').doc(otherSuccessorId).get()).exists, false);
+  });
+
+  await t.test('S24 webhook replays never duplicate or reset the successor', async () => {
+    await seedFixture({
+      league1: { confirmedCount: 11, lastAssignedRegistrationOrder: 11 },
+      registrations: [{ label: 'a' }],
+    });
+    await db.collection('leagues').doc(LEAGUE_2_ID).delete();
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    const { payment } = await activate('a');
+    const paid = paidSession(stripe, payment.providerCheckoutSessionId);
+    await fulfillSuccessfulCheckout(
+      stripeEvent('evt_successor_24', 'checkout.session.completed'),
+      paid,
+    );
+    await db.collection('leagues').doc(LEAGUE_2_ID).update({
+      status: 'closed',
+      confirmedCount: 2,
+      activeHoldCount: 1,
+      lastAssignedRegistrationOrder: 3,
+      updatedAt: Timestamp.now(),
+    });
+    const before = (await db.collection('leagues').doc(LEAGUE_2_ID).get()).data();
+    await fulfillSuccessfulCheckout(
+      stripeEvent('evt_successor_24', 'checkout.session.completed'),
+      paid,
+    );
+    await fulfillSuccessfulCheckout(
+      stripeEvent('evt_successor_24_replay', 'checkout.session.completed'),
+      paid,
+    );
+    assert.deepEqual((await db.collection('leagues').doc(LEAGUE_2_ID).get()).data(), before);
   });
 });
+
 
 test('Payment promo attribution T1-T10', async (t) => {
   await t.test('T1 T2 T4 T5 validated normalized attribution is atomic and price-independent', async () => {

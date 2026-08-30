@@ -11,6 +11,7 @@ import {
 import {
   collections,
   db,
+  getLeagueId,
   getPaymentId,
   getPaymentIntentId,
   getPromoCodeId,
@@ -51,10 +52,14 @@ type OfferingData = {
 
 type LeagueData = {
   registrationOfferingId?: unknown;
+  leagueNumber?: unknown;
   status?: unknown;
   capacity?: unknown;
   confirmedCount?: unknown;
   activeHoldCount?: unknown;
+  lastAssignedRegistrationOrder?: unknown;
+  createdAt?: unknown;
+  updatedAt?: unknown;
 };
 
 type PlayerData = {
@@ -266,6 +271,71 @@ function validateLeague(
   }
 
   return { capacity, confirmedCount, activeHoldCount };
+}
+
+function validateAssignmentCandidate(
+  snapshot: FirebaseFirestore.QueryDocumentSnapshot,
+  registrationOfferingId: string,
+): LeagueData {
+  const league = snapshot.data() as LeagueData;
+  const expectedKeys = [
+    'activeHoldCount',
+    'capacity',
+    'confirmedCount',
+    'createdAt',
+    'lastAssignedRegistrationOrder',
+    'leagueNumber',
+    'registrationOfferingId',
+    'status',
+    'updatedAt',
+  ];
+
+  if (
+    league.registrationOfferingId !== registrationOfferingId
+    || !Number.isInteger(league.leagueNumber)
+    || Number(league.leagueNumber) < 1
+    || snapshot.id !== getLeagueId(registrationOfferingId, Number(league.leagueNumber))
+    || !Number.isInteger(league.capacity)
+    || Number(league.capacity) < 1
+    || !Number.isInteger(league.confirmedCount)
+    || Number(league.confirmedCount) < 0
+    || !Number.isInteger(league.activeHoldCount)
+    || Number(league.activeHoldCount) < 0
+    || !Number.isInteger(league.lastAssignedRegistrationOrder)
+    || Number(league.lastAssignedRegistrationOrder) < 0
+    || !(league.createdAt instanceof Timestamp)
+    || !(league.updatedAt instanceof Timestamp)
+    || !['draft', 'open', 'full', 'closed', 'cancelled'].includes(String(league.status))
+    || Object.keys(league).sort().join(',') !== expectedKeys.sort().join(',')
+    || Number(league.confirmedCount) + Number(league.activeHoldCount) > Number(league.capacity)
+  ) {
+    throw new HttpsError('failed-precondition', 'League assignment state is invalid.');
+  }
+
+  return league;
+}
+
+function chooseEarliestAvailableLeague(
+  snapshots: FirebaseFirestore.QueryDocumentSnapshot[],
+  registrationOfferingId: string,
+): FirebaseFirestore.QueryDocumentSnapshot {
+  const candidates = snapshots.map((snapshot) => ({
+    snapshot,
+    league: validateAssignmentCandidate(snapshot, registrationOfferingId),
+  })).sort((first, second) => (
+    Number(first.league.leagueNumber) - Number(second.league.leagueNumber)
+  ));
+
+  const selected = candidates.find(({ league }) => (
+    league.status === 'open'
+    && Number(league.confirmedCount) + Number(league.activeHoldCount) < Number(league.capacity)
+  ));
+
+  if (!selected) {
+    throw new HttpsError('resource-exhausted', 'No League currently has available capacity.');
+  }
+
+  return selected.snapshot;
 }
 
 function getLockedAttribution(registration: RegistrationData): Attribution {
@@ -620,19 +690,24 @@ export const createRegistrationCheckout = onCall(
     const registration = registrationSnapshot.data() as RegistrationData;
     const offeringId = validateRegistrationOwner(registration, playerId);
     validateRegistrationPolicies(registration);
-    const leagueId = requireString(registration.leagueId, 'Registration league');
+    const provisionalLeagueId = typeof registration.leagueId === 'string'
+      && registration.leagueId.length > 0
+      ? registration.leagueId
+      : null;
 
-    const lockedCheckout = await getLockedCheckoutUrl(
-      checkoutLockRef,
-      registrationRef,
-      registrationId,
-      paymentId,
-      playerId,
-      offeringId,
-      leagueId,
-    );
+    if (provisionalLeagueId) {
+      const lockedCheckout = await getLockedCheckoutUrl(
+        checkoutLockRef,
+        registrationRef,
+        registrationId,
+        paymentId,
+        playerId,
+        offeringId,
+        provisionalLeagueId,
+      );
 
-    if (lockedCheckout) return lockedCheckout;
+      if (lockedCheckout) return lockedCheckout;
+    }
 
     const existingUrl = await getExistingCheckoutUrl(paymentId, registrationId);
 
@@ -642,36 +717,24 @@ export const createRegistrationCheckout = onCall(
 
     let acquisition = validateAcquisitionAttribution(registration);
     const offeringRef = db.collection(collections.registrationOfferings).doc(offeringId);
-    const leagueRef = db.collection(collections.leagues).doc(leagueId);
-    const [offeringSnapshot, leagueSnapshot, seatHoldSnapshot] = await Promise.all([
-      offeringRef.get(),
-      leagueRef.get(),
-      seatHoldRef.get(),
-    ]);
+    const offeringSnapshot = await offeringRef.get();
 
-    if (!offeringSnapshot.exists || !leagueSnapshot.exists) {
-      throw new HttpsError('failed-precondition', 'Registration offering or League was not found.');
+    if (!offeringSnapshot.exists) {
+      throw new HttpsError('failed-precondition', 'Registration offering was not found.');
     }
 
     const price = validateOffering(offeringSnapshot.data() as OfferingData, Timestamp.now());
-    const existingSeatHold = seatHoldSnapshot.data() as SeatHoldData | undefined;
-    const isProvisioningRetry = seatHoldSnapshot.exists
-      && existingSeatHold?.paymentId === paymentId
-      && existingSeatHold.registrationId === registrationId
-      && existingSeatHold.registrationOfferingId === offeringId
-      && existingSeatHold.leagueId === leagueId
-      && existingSeatHold.status === 'provisioning';
-    validateLeague(leagueSnapshot.data() as LeagueData, offeringId, !isProvisioningRetry);
     const attribution = await validateAttribution(registration, data.promoCode);
     const successUrl = requireConfiguredUrl(checkoutSuccessUrl.value(), 'CHECKOUT_SUCCESS_URL');
     const cancelUrl = requireConfiguredUrl(checkoutCancelUrl.value(), 'CHECKOUT_CANCEL_URL');
+    const leagueQuery = db.collection(collections.leagues)
+      .where('registrationOfferingId', '==', offeringId);
 
     await runCheckoutTestHook('before-provisioning-transaction');
-    await db.runTransaction(async (transaction) => {
+    const leagueId = await db.runTransaction(async (transaction) => {
       const currentPlayerSnapshot = await transaction.get(playerRef);
       const currentRegistrationSnapshot = await transaction.get(registrationRef);
       const currentOfferingSnapshot = await transaction.get(offeringRef);
-      const currentLeagueSnapshot = await transaction.get(leagueRef);
       const paymentSnapshot = await transaction.get(paymentRef);
       const currentSeatHoldSnapshot = await transaction.get(seatHoldRef);
       const checkoutLockSnapshot = await transaction.get(checkoutLockRef);
@@ -683,6 +746,7 @@ export const createRegistrationCheckout = onCall(
           db.collection(collections.promoters).doc(attribution.promoterIdSnapshot),
         )
         : null;
+      const leagueSnapshots = await transaction.get(leagueQuery);
 
       const currentPlayer = currentPlayerSnapshot.data() as PlayerData | undefined;
 
@@ -692,7 +756,6 @@ export const createRegistrationCheckout = onCall(
         || currentPlayer.profileComplete !== true
         || !currentRegistrationSnapshot.exists
         || !currentOfferingSnapshot.exists
-        || !currentLeagueSnapshot.exists
       ) {
         throw new HttpsError('failed-precondition', 'Checkout eligibility changed.');
       }
@@ -702,10 +765,7 @@ export const createRegistrationCheckout = onCall(
       validateRegistrationPolicies(currentRegistration);
       acquisition = validateAcquisitionAttribution(currentRegistration);
 
-      if (
-        currentOfferingId !== offeringId
-        || requireString(currentRegistration.leagueId, 'Registration league') !== leagueId
-      ) {
+      if (currentOfferingId !== offeringId) {
         throw new HttpsError('failed-precondition', 'Checkout eligibility changed.');
       }
 
@@ -752,32 +812,39 @@ export const createRegistrationCheckout = onCall(
 
       if (currentSeatHoldSnapshot.exists) {
         const currentSeatHold = currentSeatHoldSnapshot.data() as SeatHoldData;
+        const heldLeagueSnapshot = leagueSnapshots.docs.find(
+          (snapshot) => snapshot.id === currentSeatHold.leagueId,
+        );
 
         if (
           currentSeatHold.paymentId !== paymentId
           || currentSeatHold.registrationId !== registrationId
           || currentSeatHold.registrationOfferingId !== offeringId
-          || currentSeatHold.leagueId !== leagueId
+          || !heldLeagueSnapshot
+          || currentRegistration.leagueId !== currentSeatHold.leagueId
           || currentSeatHold.status !== 'provisioning'
           || checkoutLockSnapshot.data()?.paymentId !== paymentId
         ) {
           throw new HttpsError('already-exists', 'Checkout request already exists.');
         }
 
-        validateLeague(currentLeagueSnapshot.data() as LeagueData, offeringId, false);
-        return;
+        validateAssignmentCandidate(heldLeagueSnapshot, offeringId);
+        validateLeague(heldLeagueSnapshot.data() as LeagueData, offeringId, false);
+        return currentSeatHold.leagueId;
       }
 
-      const { activeHoldCount } = validateLeague(
-        currentLeagueSnapshot.data() as LeagueData,
+      const selectedLeagueSnapshot = chooseEarliestAvailableLeague(
+        leagueSnapshots.docs,
         offeringId,
       );
+      const selectedLeagueId = selectedLeagueSnapshot.id;
+      const { activeHoldCount } = validateLeague(selectedLeagueSnapshot.data(), offeringId);
       const timestamp = Timestamp.now();
 
       transaction.create(seatHoldRef, {
         registrationId,
         registrationOfferingId: offeringId,
-        leagueId,
+        leagueId: selectedLeagueId,
         paymentId,
         providerCheckoutSessionId: null,
         status: 'provisioning',
@@ -785,8 +852,12 @@ export const createRegistrationCheckout = onCall(
         createdAt: timestamp,
         updatedAt: timestamp,
       });
-      transaction.update(leagueRef, {
+      transaction.update(selectedLeagueSnapshot.ref, {
         activeHoldCount: activeHoldCount + 1,
+        updatedAt: timestamp,
+      });
+      transaction.update(registrationRef, {
+        leagueId: selectedLeagueId,
         updatedAt: timestamp,
       });
       transaction.set(checkoutLockRef, {
@@ -794,7 +865,10 @@ export const createRegistrationCheckout = onCall(
         registrationId,
         updatedAt: timestamp,
       });
+      return selectedLeagueId;
     });
+
+    const leagueRef = db.collection(collections.leagues).doc(leagueId);
 
     const stripe = getStripe();
     let session: Stripe.Checkout.Session;

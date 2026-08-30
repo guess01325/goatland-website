@@ -7,9 +7,12 @@ import type { SeatHoldData } from './seatHolds.js';
 import {
   collections,
   db,
+  getLeagueId,
   getPaymentIntentId,
   getPublicRosterEntryId,
   getStripe,
+  LEAGUE_CAPACITY,
+  LEAGUE_SUCCESSOR_THRESHOLD,
 } from './shared.js';
 
 type PaymentData = {
@@ -41,11 +44,21 @@ type PublicRosterData = {
 
 type LeagueData = {
   registrationOfferingId?: unknown;
+  leagueNumber?: unknown;
   status?: unknown;
   capacity?: unknown;
   confirmedCount?: unknown;
   activeHoldCount?: unknown;
   lastAssignedRegistrationOrder?: unknown;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+};
+
+type SuccessorContext = {
+  reference: FirebaseFirestore.DocumentReference;
+  snapshot: FirebaseFirestore.DocumentSnapshot;
+  registrationOfferingId: string;
+  leagueNumber: number;
 };
 
 function requireMetadata(session: Stripe.Checkout.Session): {
@@ -101,6 +114,100 @@ function validatePublicRosterProjection(
   ) {
     throw new Error('Public roster projection is inconsistent.');
   }
+}
+
+function validateFulfillmentLeague(
+  snapshot: FirebaseFirestore.DocumentSnapshot,
+  registrationOfferingId: string,
+): {
+    leagueNumber: number;
+    capacity: number;
+    confirmedCount: number;
+    activeHoldCount: number;
+    lastAssignedRegistrationOrder: number;
+  } {
+  const league = snapshot.data() as LeagueData;
+  if (
+    league.registrationOfferingId !== registrationOfferingId
+    || !Number.isInteger(league.leagueNumber)
+    || Number(league.leagueNumber) < 1
+    || snapshot.id !== getLeagueId(registrationOfferingId, Number(league.leagueNumber))
+    || !Number.isInteger(league.capacity)
+    || Number(league.capacity) < 1
+    || !Number.isInteger(league.confirmedCount)
+    || Number(league.confirmedCount) < 0
+    || !Number.isInteger(league.activeHoldCount)
+    || Number(league.activeHoldCount) < 0
+    || !Number.isInteger(league.lastAssignedRegistrationOrder)
+    || Number(league.lastAssignedRegistrationOrder) < 0
+    || !(league.createdAt instanceof Timestamp)
+    || !(league.updatedAt instanceof Timestamp)
+    || Number(league.confirmedCount) + Number(league.activeHoldCount) > Number(league.capacity)
+  ) {
+    throw new Error('League registration state is invalid.');
+  }
+
+  return {
+    leagueNumber: Number(league.leagueNumber),
+    capacity: Number(league.capacity),
+    confirmedCount: Number(league.confirmedCount),
+    activeHoldCount: Number(league.activeHoldCount),
+    lastAssignedRegistrationOrder: Number(league.lastAssignedRegistrationOrder),
+  };
+}
+
+function validateExistingSuccessor(context: SuccessorContext): void {
+  const successor = context.snapshot.data() as LeagueData;
+  const expectedKeys = [
+    'activeHoldCount',
+    'capacity',
+    'confirmedCount',
+    'createdAt',
+    'lastAssignedRegistrationOrder',
+    'leagueNumber',
+    'registrationOfferingId',
+    'status',
+    'updatedAt',
+  ];
+
+  if (
+    successor.registrationOfferingId !== context.registrationOfferingId
+    || successor.leagueNumber !== context.leagueNumber
+    || successor.capacity !== LEAGUE_CAPACITY
+    || !['open', 'full', 'closed', 'cancelled'].includes(String(successor.status))
+    || !Number.isInteger(successor.confirmedCount)
+    || Number(successor.confirmedCount) < 0
+    || !Number.isInteger(successor.activeHoldCount)
+    || Number(successor.activeHoldCount) < 0
+    || !Number.isInteger(successor.lastAssignedRegistrationOrder)
+    || Number(successor.lastAssignedRegistrationOrder) < 0
+    || Number(successor.confirmedCount) + Number(successor.activeHoldCount) > LEAGUE_CAPACITY
+    || !(successor.createdAt instanceof Timestamp)
+    || !(successor.updatedAt instanceof Timestamp)
+    || Object.keys(successor).sort().join(',') !== expectedKeys.sort().join(',')
+  ) {
+    throw new Error('Deterministic successor League is invalid; refusing to overwrite it.');
+  }
+}
+
+function createSuccessorIfMissing(
+  transaction: FirebaseFirestore.Transaction,
+  context: SuccessorContext | null,
+  timestamp: Timestamp,
+): void {
+  if (!context || context.snapshot.exists) return;
+
+  transaction.create(context.reference, {
+    registrationOfferingId: context.registrationOfferingId,
+    leagueNumber: context.leagueNumber,
+    capacity: LEAGUE_CAPACITY,
+    status: 'open',
+    confirmedCount: 0,
+    activeHoldCount: 0,
+    lastAssignedRegistrationOrder: 0,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  });
 }
 
 async function ensurePublicRosterProjection(
@@ -217,6 +324,34 @@ export async function fulfillSuccessfulCheckout(
       throw new Error('SeatHold, League, or Registration offering relationship is invalid.');
     }
 
+    const leagueState = validateFulfillmentLeague(
+      leagueSnapshot,
+      registration.registrationOfferingId,
+    );
+    const confirmationAlreadyCounted = payment.status === 'succeeded'
+      || registration.status === 'confirmed';
+    const projectedConfirmedCount = leagueState.confirmedCount
+      + (confirmationAlreadyCounted ? 0 : 1);
+    let successorContext: SuccessorContext | null = null;
+
+    if (projectedConfirmedCount >= LEAGUE_SUCCESSOR_THRESHOLD) {
+      const successorLeagueNumber = leagueState.leagueNumber + 1;
+      const successorRef = db.collection(collections.leagues).doc(
+        getLeagueId(registration.registrationOfferingId, successorLeagueNumber),
+      );
+      const successorSnapshot = await transaction.get(successorRef);
+      successorContext = {
+        reference: successorRef,
+        snapshot: successorSnapshot,
+        registrationOfferingId: registration.registrationOfferingId,
+        leagueNumber: successorLeagueNumber,
+      };
+
+      if (successorSnapshot.exists) {
+        validateExistingSuccessor(successorContext);
+      }
+    }
+
     const timestamp = Timestamp.now();
     const providerPaymentIntentId = getPaymentIntentId(session.payment_intent);
 
@@ -237,6 +372,8 @@ export async function fulfillSuccessfulCheckout(
         playerRef,
         Number(registration.registrationOrder),
       );
+
+      createSuccessorIfMissing(transaction, successorContext, timestamp);
 
       if (eventRef && event) {
         transaction.create(eventRef, eventRecord(event, session, timestamp));
@@ -263,6 +400,8 @@ export async function fulfillSuccessfulCheckout(
         playerRef,
         Number(registration.registrationOrder),
       );
+
+      createSuccessorIfMissing(transaction, successorContext, timestamp);
 
       transaction.update(paymentRef, {
         status: 'succeeded',
@@ -299,42 +438,29 @@ export async function fulfillSuccessfulCheckout(
     }
     const displayName = requireDisplayName(playerSnapshot.data() as PlayerData);
 
-    const lastAssignedOrder = league.lastAssignedRegistrationOrder;
-    const confirmedCount = league.confirmedCount;
-    const activeHoldCount = league.activeHoldCount;
-    const capacity = league.capacity;
-
-    if (
-      !Number.isInteger(lastAssignedOrder)
-      || Number(lastAssignedOrder) < 0
-      || !Number.isInteger(confirmedCount)
-      || Number(confirmedCount) < 0
-      || !Number.isInteger(activeHoldCount)
-      || Number(activeHoldCount) < 1
-      || !Number.isInteger(capacity)
-      || Number(capacity) < 1
-      || Number(confirmedCount) + Number(activeHoldCount) > Number(capacity)
-    ) {
+    if (leagueState.activeHoldCount < 1) {
       throw new Error('League registration state is invalid.');
     }
 
-    const nextOrder = Number(lastAssignedOrder) + 1;
-    const nextConfirmedCount = Number(confirmedCount) + 1;
-    const nextActiveHoldCount = Number(activeHoldCount) - 1;
+    const nextOrder = leagueState.lastAssignedRegistrationOrder + 1;
+    const nextConfirmedCount = leagueState.confirmedCount + 1;
+    const nextActiveHoldCount = leagueState.activeHoldCount - 1;
 
     if (
-      nextConfirmedCount > Number(capacity)
+      nextConfirmedCount > leagueState.capacity
       || nextActiveHoldCount < 0
-      || nextConfirmedCount + nextActiveHoldCount > Number(capacity)
+      || nextConfirmedCount + nextActiveHoldCount > leagueState.capacity
     ) {
       throw new Error('SeatHold conversion would violate League capacity.');
     }
+
+    createSuccessorIfMissing(transaction, successorContext, timestamp);
 
     transaction.update(leagueRef, {
       confirmedCount: nextConfirmedCount,
       activeHoldCount: nextActiveHoldCount,
       lastAssignedRegistrationOrder: nextOrder,
-      status: nextConfirmedCount === Number(capacity) ? 'full' : league.status,
+      status: nextConfirmedCount === leagueState.capacity ? 'full' : league.status,
       updatedAt: timestamp,
     });
     transaction.update(paymentRef, {

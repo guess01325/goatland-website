@@ -24,6 +24,26 @@ export const collections = {
   stripeWebhookEvents: 'stripeWebhookEvents',
 } as const;
 
+export const LEAGUE_CAPACITY = 16;
+export const LEAGUE_SUCCESSOR_THRESHOLD = 12;
+const LEAGUE_ID_SEPARATOR = '__league-';
+
+export function getLeagueId(registrationOfferingId: string, leagueNumber: number): string {
+  if (
+    !registrationOfferingId
+    || registrationOfferingId.includes('/')
+    || registrationOfferingId.includes(LEAGUE_ID_SEPARATOR)
+  ) {
+    throw new Error('registrationOfferingId cannot be used in a League document ID.');
+  }
+
+  if (!Number.isInteger(leagueNumber) || leagueNumber < 1) {
+    throw new Error('leagueNumber must be a positive integer.');
+  }
+
+  return `${registrationOfferingId}${LEAGUE_ID_SEPARATOR}${leagueNumber}`;
+}
+
 export function getPublicRosterEntryId(leagueId: string, registrationId: string): string {
   return createHash('sha256')
     .update(`public-roster\0${leagueId}\0${registrationId}`)

@@ -31,7 +31,7 @@ export function RegistrationPolicies({
   return (
     <section className="registration-policies" aria-labelledby="registration-policies-title">
       <div>
-        <p className="eyebrow">Step 6</p>
+        <p className="eyebrow">Step 5</p>
         <h2 id="registration-policies-title">Accept Registration Policies</h2>
         <p>Effective {REGISTRATION_POLICIES_EFFECTIVE_DATE}. Review and accept both policies to create your pending Registration.</p>
       </div>

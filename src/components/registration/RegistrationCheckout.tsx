@@ -1,5 +1,4 @@
 import type { Game } from '../../models/Game';
-import type { League } from '../../models/League';
 import type { LeagueStart } from '../../models/LeagueStart';
 import type { Registration } from '../../models/Registration';
 import type { RegistrationOffering } from '../../models/RegistrationOffering';
@@ -9,7 +8,6 @@ import { REGISTRATION_PAYMENT_UNAVAILABLE_MESSAGE } from '../../lib/registration
 type RegistrationCheckoutProps = {
   registration: Registration;
   offering: RegistrationOffering;
-  league: League;
   game: Game;
   tier: Tier;
   leagueStart: LeagueStart;
@@ -48,7 +46,6 @@ function formatStartDate(leagueStart: LeagueStart): string {
 export function RegistrationCheckout({
   registration,
   offering,
-  league,
   game,
   tier,
   leagueStart,
@@ -64,7 +61,7 @@ export function RegistrationCheckout({
   return (
     <section className="registration-checkout" aria-labelledby="registration-checkout-title">
       <div>
-        <p className="eyebrow">Step 7</p>
+        <p className="eyebrow">Step 6</p>
         <h2 id="registration-checkout-title">Review &amp; Pay</h2>
         <p>Review your Registration before continuing to Stripe Checkout.</p>
       </div>
@@ -73,7 +70,7 @@ export function RegistrationCheckout({
         <div><dt>Game</dt><dd>{game.name}{game.edition ? ` ${game.edition}` : ''}</dd></div>
         <div><dt>Tier</dt><dd>{tier.name}</dd></div>
         <div><dt>League Start Date</dt><dd>{formatStartDate(leagueStart)}</dd></div>
-        <div><dt>League</dt><dd>League {league.leagueNumber}</dd></div>
+        <div><dt>League</dt><dd>Your league will be assigned when payment begins.</dd></div>
         <div><dt>Entry fee</dt><dd>{formatEntryFee(offering)}</dd></div>
         <div>
           <dt>Promo</dt>

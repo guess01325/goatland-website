@@ -41,6 +41,9 @@ async function loadReturnContext(registrationOfferingId: string): Promise<Return
   if (!registration || !offering || registration.registrationOfferingId !== offering.id) {
     throw new Error('Registration return context is unavailable.');
   }
+  if (!registration.leagueId) {
+    throw new Error('Registration League assignment is unavailable.');
+  }
 
   const [league, leagueStart, tier] = await Promise.all([
     getLeague(registration.leagueId),

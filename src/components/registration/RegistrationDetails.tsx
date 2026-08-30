@@ -63,7 +63,7 @@ export function RegistrationDetails({
   return (
     <section className="registration-details" aria-labelledby="registration-details-title">
       <div>
-        <p className="eyebrow">Step 5</p>
+        <p className="eyebrow">Step 4</p>
         <h2 id="registration-details-title">Registration Details</h2>
         <p>Tell us how you found GOATLAND and optionally enter a promo code.</p>
       </div>

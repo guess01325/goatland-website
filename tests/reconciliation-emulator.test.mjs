@@ -287,8 +287,11 @@ test('SeatHold reconciliation R1-R13 and provisioning', async (t) => {
     assert.equal(state.roster.length, 0);
   });
 
-  await t.test('R3. active plus Stripe paid converts', async () => {
-    await seedBase({ league1: { activeHoldCount: 1 } });
+  await t.test('R3 S25. paid reconciliation converts and idempotently ensures successor', async () => {
+    await seedBase({
+      league1: { confirmedCount: 11, activeHoldCount: 1, lastAssignedRegistrationOrder: 11 },
+    });
+    await db.collection('leagues').doc(LEAGUE_2_ID).delete();
     await seedHold('r3', {
       promoCodeSnapshot: 'NIGHTFLIGHT',
       promoterIdSnapshot: 'promoter-nightflight',
@@ -302,7 +305,7 @@ test('SeatHold reconciliation R1-R13 and provisioning', async (t) => {
     const state = await readState('r3');
     assert.deepEqual(
       [state.league.activeHoldCount, state.league.confirmedCount, state.league.lastAssignedRegistrationOrder],
-      [0, 1, 1],
+      [0, 12, 12],
     );
     assert.equal(state.roster.length, 1);
     assert.equal(state.hold.status, 'converted');
@@ -312,12 +315,36 @@ test('SeatHold reconciliation R1-R13 and provisioning', async (t) => {
       ['NIGHTFLIGHT', 'promoter-nightflight'],
     );
     assert.equal(state.registration.status, 'confirmed');
-    assert.equal(state.registration.registrationOrder, 1);
+    assert.equal(state.registration.registrationOrder, 12);
     assert.equal(state.lockExists, false);
     assert.deepEqual(
       Object.fromEntries(Object.entries(state.roster[0]).filter(([key]) => key !== 'id')),
-      { displayName: 'Player r3', registrationOrder: 1 },
+      { displayName: 'Player r3', registrationOrder: 12 },
     );
+    const successorRef = db.collection('leagues').doc(LEAGUE_2_ID);
+    const successor = (await successorRef.get()).data();
+    assert.deepEqual(
+      Object.fromEntries(Object.entries(successor).filter(([key]) => !['createdAt', 'updatedAt'].includes(key))),
+      {
+        registrationOfferingId: OFFERING_ID,
+        leagueNumber: 2,
+        capacity: 16,
+        status: 'open',
+        confirmedCount: 0,
+        activeHoldCount: 0,
+        lastAssignedRegistrationOrder: 0,
+      },
+    );
+    await successorRef.update({
+      status: 'closed',
+      confirmedCount: 2,
+      activeHoldCount: 1,
+      lastAssignedRegistrationOrder: 3,
+      updatedAt: Timestamp.now(),
+    });
+    const preserved = (await successorRef.get()).data();
+    await reconcileSeatHolds();
+    assert.deepEqual((await successorRef.get()).data(), preserved);
   });
 
   await t.test('R4. converted hold is not scanned or mutated', async () => {

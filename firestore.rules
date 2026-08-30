@@ -116,8 +116,9 @@ service cloud.firestore {
       ])
       && request.resource.data.playerId is string
       && request.resource.data.registrationOfferingId is string
-      && request.resource.data.leagueId is string
-      && request.resource.data.leagueId.size() > 0
+      && (request.resource.data.leagueId == null
+        || (request.resource.data.leagueId is string
+          && request.resource.data.leagueId.size() > 0))
       && request.resource.data.competitionRulesVersionAccepted is string
       && request.resource.data.competitionRulesVersionAccepted.size() > 0
       && request.resource.data.refundPolicyVersionAccepted is string
@@ -197,13 +198,6 @@ service cloud.firestore {
         && offering.data.registrationClosesAt >= request.time;
     }
 
-    function isOpenLeagueForOffering(leagueId, offeringId) {
-      let league = get(/databases/$(database)/documents/leagues/$(leagueId));
-      return exists(/databases/$(database)/documents/leagues/$(leagueId))
-        && league.data.registrationOfferingId == offeringId
-        && league.data.status == 'open';
-    }
-
     function isOwnedRegistrationId(registrationId) {
       return request.auth != null
         && registrationId.matches('[^|/]+[|][^|/]+')
@@ -224,10 +218,7 @@ service cloud.firestore {
           + request.resource.data.registrationOfferingId
         && exists(/databases/$(database)/documents/players/$(request.auth.uid))
         && isOpenOffering(request.resource.data.registrationOfferingId)
-        && isOpenLeagueForOffering(
-          request.resource.data.leagueId,
-          request.resource.data.registrationOfferingId
-        )
+        && request.resource.data.leagueId == null
         && request.resource.data.status == 'pending_payment'
         && request.resource.data.competitionRulesVersionAccepted
           == 'competition-rules-2026-08-29-v1'
@@ -267,17 +258,7 @@ service cloud.firestore {
           ])
           && request.resource.data.status == 'pending_payment'
           && request.resource.data.updatedAt == request.time)
-        || (hasValidRegistrationData()
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'leagueId',
-            'updatedAt'
-          ])
-          && request.resource.data.status == 'pending_payment'
-          && request.resource.data.updatedAt == request.time
-          && isOpenLeagueForOffering(
-            request.resource.data.leagueId,
-            resource.data.registrationOfferingId
-          )));
+        );
       allow delete: if false;
     }
 

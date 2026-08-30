@@ -62,7 +62,7 @@ export async function createRegistration(input: CreateRegistrationInput): Promis
   await setDoc(reference, {
     playerId,
     registrationOfferingId: input.registrationOfferingId,
-    leagueId: input.leagueId,
+    leagueId: null,
     status: 'pending_payment',
     competitionRulesVersionAccepted: input.competitionRulesVersionAccepted,
     competitionRulesAcceptedAt: timestamp,
@@ -92,18 +92,6 @@ export async function updateRegistrationAcquisitionSource(
 
   await updateDoc(getRegistrationReference(playerId, registrationOfferingId), {
     ...acquisition,
-    updatedAt: serverTimestamp(),
-  });
-}
-
-export async function updateRegistrationLeague(
-  registrationOfferingId: string,
-  leagueId: string,
-): Promise<void> {
-  const playerId = getAuthenticatedPlayerId();
-
-  await updateDoc(getRegistrationReference(playerId, registrationOfferingId), {
-    leagueId,
     updatedAt: serverTimestamp(),
   });
 }
