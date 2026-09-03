@@ -20,7 +20,12 @@ const PROMO_FIXTURES = [
     promoterName: 'Night Flight Basketball',
     promoCodeId: 'NFBL860',
   },
-  { promoterId: 'chris76tx', promoterName: 'Chris76TX', promoCodeId: 'CHRIS76TX' },
+  { promoterId: 'chris76tx', promoterName: 'Chris Nuamah', promoCodeId: 'CHRIS76TX' },
+  {
+    promoterId: 'anthony-phillips',
+    promoterName: 'Anthony Phillips',
+    promoCodeId: 'NBAANT860',
+  },
   {
     promoterId: 'e2e-hosted-referral-promoter',
     promoterName: 'Hosted Development E2E Referral',
@@ -138,7 +143,6 @@ function logPromoFixtures() {
   for (const { promoterId } of PROMO_FIXTURES) console.log(`- ${promoterId}`);
   console.log('PromoCodes:');
   for (const { promoCodeId } of PROMO_FIXTURES) console.log(`- ${promoCodeId}`);
-  console.log('NBAANT860 skipped because owner is unconfirmed.');
 }
 
 async function runPromoOnlySeed() {

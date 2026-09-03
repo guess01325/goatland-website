@@ -15,8 +15,8 @@ const EXPECTED_COUNTS = Object.freeze({
   leagueStarts: 80,
   registrationOfferings: 80,
   leagues: 80,
-  promoters: 3,
-  promoCodes: 3,
+  promoters: 4,
+  promoCodes: 4,
 });
 
 const TIER_DATES = Object.freeze({
@@ -94,7 +94,8 @@ const PROMOTERS = Object.freeze([
   Object.freeze({
     id: 'night-flight-basketball', name: 'Night Flight Basketball', status: 'active',
   }),
-  Object.freeze({ id: 'chris76tx', name: 'Chris76TX', status: 'active' }),
+  Object.freeze({ id: 'chris76tx', name: 'Chris Nuamah', status: 'active' }),
+  Object.freeze({ id: 'anthony-phillips', name: 'Anthony Phillips', status: 'active' }),
 ]);
 
 const PROMO_CODES = Object.freeze([
@@ -103,6 +104,7 @@ const PROMO_CODES = Object.freeze([
     id: 'NFBL860', promoterId: 'night-flight-basketball', status: 'active',
   }),
   Object.freeze({ id: 'CHRIS76TX', promoterId: 'chris76tx', status: 'active' }),
+  Object.freeze({ id: 'NBAANT860', promoterId: 'anthony-phillips', status: 'active' }),
 ]);
 
 const SCHEMAS = Object.freeze({
@@ -367,7 +369,6 @@ function validateManifest(manifest) {
   const forbiddenFragments = [
     'madden-ultimate-team__2026-',
     'madden-ultimate-team__tier-',
-    'NBAANT860',
     'E2E-REFERRAL',
     'e2e-hosted-referral-promoter',
   ];
