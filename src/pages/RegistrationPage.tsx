@@ -4,6 +4,7 @@ import { RegistrationCheckout } from '../components/registration/RegistrationChe
 import { RegistrationDetails } from '../components/registration/RegistrationDetails';
 import { RegistrationPolicies } from '../components/registration/RegistrationPolicies';
 import { SelectionCard } from '../components/registration/SelectionCard';
+import { YourRegistrations } from '../components/registration/YourRegistrations';
 import { PageHeader } from '../components/PageHeader';
 import { SectionHeading } from '../components/SectionHeading';
 import { registrationPaymentsEnabled } from '../config/registrationPayments';
@@ -576,7 +577,7 @@ export function RegistrationPage() {
         ...normalizedLocalAcquisition!,
       });
       if (currentOfferingId.current !== offeringAtRequest) return;
-      setRegistrationCreateNotice('Registration created.');
+      setRegistrationCreateNotice('Registration received. Your signup priority has been saved.');
       setAcquisitionReloadPending(true);
       refreshRegistrationState();
     } catch (error) {
@@ -709,13 +710,22 @@ export function RegistrationPage() {
       <PageHeader
         eyebrow="League Registration"
         title="Choose Your League Start"
-        description="Choose a Game, Tier, and League Start Date. GOATLAND assigns League placement when payment begins."
+        description="Choose a Game, Tier, and League Start Date to save your Registration and signup priority now."
       />
 
       <section className="section registration-browser-section">
         <div className="container">
+          <YourRegistrations refreshKey={registrationRetry} />
+
           <ol className="registration-steps" aria-label="Registration browsing progress">
-            {['Game', 'Tier', 'Start Date', 'Details', 'Policies', 'Review & Pay'].map((label, index) => (
+            {[
+              'Game',
+              'Tier',
+              'Start Date',
+              'Details',
+              'Policies',
+              registrationPaymentsEnabled ? 'Review & Pay' : 'Registration Status',
+            ].map((label, index) => (
               <li
                 className={`${index + 1 === currentStep ? 'registration-steps__current ' : ''}${index + 1 < currentStep ? 'registration-steps__complete' : ''}`}
                 key={label}
@@ -912,13 +922,19 @@ export function RegistrationPage() {
             </>
           ) : null}
 
-          <div className="status-banner registration-checkout-notice">
-            <div>
-              <p className="eyebrow">Registration Checkout</p>
-              <h2>Review availability before payment.</h2>
-              <p>Stripe Checkout is available only for an eligible pending Registration.</p>
+          {!registrationPaymentsEnabled ? (
+            <div className="status-banner registration-checkout-notice">
+              <div>
+                <p className="eyebrow">Launch Registration Process</p>
+                <h2>Register now. Payment confirmation comes later.</h2>
+                <p>
+                  GOATLAND will notify registered players when the approved payment provider
+                  launches. The 48-hour payment window starts with that notification, not when the
+                  Registration is submitted.
+                </p>
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
       </section>
     </>
@@ -991,10 +1007,15 @@ function RegistrationState({ registration, game, tier, start }: RegistrationStat
   const confirmed = registration.status === 'confirmed';
   return (
     <div className="registration-management-state" role="status">
-      <p className="eyebrow">{confirmed ? "You're registered" : 'Registration ready'}</p>
+      <p className="eyebrow">{confirmed ? "You're registered" : 'Registration saved'}</p>
       <h2>{game?.name}{game?.edition ? ` ${game.edition}` : ''} · {tier?.name}</h2>
       <p>{formatStartDate(start)}</p>
-      {!confirmed ? <p>Your league will be assigned when payment begins.</p> : null}
+      {!confirmed ? (
+        <p>
+          Signup priority #{registration.registrationOrder}. Your League will be assigned after
+          payment confirmation launches; no payment is due now.
+        </p>
+      ) : null}
       {!confirmed && (
         registration.competitionRulesVersionAccepted !== CURRENT_COMPETITION_RULES_VERSION
         || registration.refundPolicyVersionAccepted !== CURRENT_REFUND_POLICY_VERSION

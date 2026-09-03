@@ -70,9 +70,9 @@ export const supportedGames: SupportedGame[] = [
       'Submit or confirm results.',
       'Advance through standings, playoffs, and player progression.',
     ],
-    statusTitle: 'Competition details are being finalized.',
+    statusTitle: 'Madden League registration is open.',
     statusText:
-      'Registration dates, league formats, entry information, rules, and start dates will be announced through the official GOATLAND website and social channels.',
+      'Choose an available October 2026 League Start Date on the Registration page. Payment confirmation will launch separately for submitted Registrations.',
     landingDetails: [
       { label: 'Supported Tiers', value: 'Tier 1, Tier 2, Tier 3' },
       {
@@ -132,9 +132,9 @@ export const supportedGames: SupportedGame[] = [
       'Report results through the GOATLAND system.',
       'Compete for playoff placement, progression, and recognition.',
     ],
-    statusTitle: 'College Football competition information is coming soon.',
+    statusTitle: 'College Football League registration is open.',
     statusText:
-      'Final formats, rules, registration dates, and competition schedules will be published once confirmed.',
+      'Choose an available October 2026 League Start Date on the Registration page. Payment confirmation will launch separately for submitted Registrations.',
     landingDetails: [
       { label: 'Supported Tiers', value: 'Tier 1, Tier 2, Tier 3' },
       {
@@ -194,9 +194,9 @@ export const supportedGames: SupportedGame[] = [
       'Confirm scores and results.',
       'Move through standings, playoffs, and player progression.',
     ],
-    statusTitle: 'NBA 2K formats are currently being prepared.',
+    statusTitle: 'NBA 2K League registration is open.',
     statusText:
-      'Registration, competition structure, entry details, and official rules will be announced before signups open.',
+      'Choose an available October 2026 League Start Date on the Registration page. Payment confirmation will launch separately for submitted Registrations.',
     landingDetails: [
       { label: 'Supported Tiers', value: 'Tier 1, Tier 2, Tier 3' },
       {

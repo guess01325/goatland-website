@@ -1,5 +1,5 @@
-export const REGISTRATION_PAYMENT_UNAVAILABLE_MESSAGE =
-  'Registration payment is temporarily unavailable. Please check back shortly.';
+export const REGISTRATION_PAYMENT_NOT_LAUNCHED_MESSAGE =
+  'Payment confirmation has not launched for this Registration.';
 
 export function isRegistrationPaymentsEnabled(value: unknown): boolean {
   return value === 'true';
@@ -10,7 +10,7 @@ export async function runRegistrationPaymentAction<T>(
   action: () => Promise<T>,
 ): Promise<T> {
   if (!paymentsEnabled) {
-    throw new Error(REGISTRATION_PAYMENT_UNAVAILABLE_MESSAGE);
+    throw new Error(REGISTRATION_PAYMENT_NOT_LAUNCHED_MESSAGE);
   }
 
   return action();

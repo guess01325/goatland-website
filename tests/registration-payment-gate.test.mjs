@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  REGISTRATION_PAYMENT_UNAVAILABLE_MESSAGE,
+  REGISTRATION_PAYMENT_NOT_LAUNCHED_MESSAGE,
   isRegistrationPaymentsEnabled,
   runRegistrationPaymentAction,
 } from '../src/lib/registrationPaymentGate.ts';
@@ -29,7 +29,7 @@ test('false disables registration payment without invoking the action', async ()
       invocationCount += 1;
       return 'checkout-created';
     }),
-    { message: REGISTRATION_PAYMENT_UNAVAILABLE_MESSAGE },
+    { message: REGISTRATION_PAYMENT_NOT_LAUNCHED_MESSAGE },
   );
 
   assert.equal(invocationCount, 0);
@@ -43,7 +43,7 @@ test('a missing flag disables registration payment without invoking the action',
       invocationCount += 1;
       return 'checkout-created';
     }),
-    { message: REGISTRATION_PAYMENT_UNAVAILABLE_MESSAGE },
+    { message: REGISTRATION_PAYMENT_NOT_LAUNCHED_MESSAGE },
   );
 
   assert.equal(invocationCount, 0);
@@ -57,7 +57,7 @@ test('only the exact true value permits payment action invocation', async () => 
       runRegistrationPaymentAction(isRegistrationPaymentsEnabled(disabledValue), async () => {
         invoked = true;
       }),
-      { message: REGISTRATION_PAYMENT_UNAVAILABLE_MESSAGE },
+      { message: REGISTRATION_PAYMENT_NOT_LAUNCHED_MESSAGE },
     );
 
     assert.equal(invoked, false);

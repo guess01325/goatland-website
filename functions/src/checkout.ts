@@ -6,6 +6,7 @@ import {
   checkoutSuccessUrl,
   CURRENT_COMPETITION_RULES_VERSION,
   CURRENT_REFUND_POLICY_VERSION,
+  registrationPaymentLaunchStatus,
   stripeSecretKey,
 } from './config.js';
 import {
@@ -40,6 +41,9 @@ type RegistrationData = {
   competitionRulesAcceptedAt?: unknown;
   refundPolicyVersionAccepted?: unknown;
   refundPolicyAcceptedAt?: unknown;
+  paymentAvailabilityStatus?: unknown;
+  paymentAvailableAt?: unknown;
+  paymentDueAt?: unknown;
 };
 
 type OfferingData = {
@@ -80,6 +84,27 @@ type CheckoutTestHookStage =
 type CheckoutTestHook = (stage: CheckoutTestHookStage) => Promise<void>;
 
 let checkoutTestHook: CheckoutTestHook | null = null;
+let paymentLaunchOverride: boolean | null = null;
+
+export function setRegistrationPaymentLaunchForEmulatorTests(
+  launched: boolean | null,
+): void {
+  if (!process.env.FIRESTORE_EMULATOR_HOST) {
+    throw new Error('Payment launch overrides require the Firestore emulator.');
+  }
+  paymentLaunchOverride = launched;
+}
+
+function requireRegistrationPaymentLaunch(): void {
+  const launched = paymentLaunchOverride
+    ?? registrationPaymentLaunchStatus.value() === 'launched';
+  if (!launched) {
+    throw new HttpsError(
+      'failed-precondition',
+      'Payment confirmation has not launched for this Registration.',
+    );
+  }
+}
 
 export function setCheckoutTestHookForEmulatorTests(hook: CheckoutTestHook | null): void {
   if (!process.env.FIRESTORE_EMULATOR_HOST) {
@@ -200,6 +225,23 @@ function validateRegistrationPolicies(registration: RegistrationData): void {
     throw new HttpsError(
       'failed-precondition',
       'Registration policy acceptance is no longer current.',
+    );
+  }
+}
+
+function validatePaymentAvailability(registration: RegistrationData, now: Timestamp): void {
+  if (
+    registration.paymentAvailabilityStatus !== 'available'
+    || !(registration.paymentAvailableAt instanceof Timestamp)
+    || !(registration.paymentDueAt instanceof Timestamp)
+    || registration.paymentDueAt.toMillis() - registration.paymentAvailableAt.toMillis()
+      !== 48 * 60 * 60 * 1000
+    || now.toMillis() < registration.paymentAvailableAt.toMillis()
+    || now.toMillis() >= registration.paymentDueAt.toMillis()
+  ) {
+    throw new HttpsError(
+      'failed-precondition',
+      'Payment confirmation is not currently available for this Registration.',
     );
   }
 }
@@ -541,6 +583,7 @@ async function getLockedCheckoutUrl(
     const currentRegistration = currentRegistrationSnapshot.data() as RegistrationData;
     const currentOfferingId = validateRegistrationOwner(currentRegistration, playerId);
     validateRegistrationPolicies(currentRegistration);
+    validatePaymentAvailability(currentRegistration, Timestamp.now());
     const currentLock = currentLockSnapshot.data();
     const currentPayment = currentPaymentSnapshot.data() as Record<string, unknown>;
     const currentSeatHold = currentSeatHoldSnapshot.data() as SeatHoldData;
@@ -652,6 +695,8 @@ export const createRegistrationCheckout = onCall(
       throw new HttpsError('unauthenticated', 'Authentication is required.');
     }
 
+    requireRegistrationPaymentLaunch();
+
     const data = request.data as CheckoutRequest;
     const registrationId = requireString(data.registrationId, 'registrationId');
     const checkoutRequestId = requireString(data.checkoutRequestId, 'checkoutRequestId');
@@ -690,6 +735,7 @@ export const createRegistrationCheckout = onCall(
     const registration = registrationSnapshot.data() as RegistrationData;
     const offeringId = validateRegistrationOwner(registration, playerId);
     validateRegistrationPolicies(registration);
+    validatePaymentAvailability(registration, Timestamp.now());
     const provisionalLeagueId = typeof registration.leagueId === 'string'
       && registration.leagueId.length > 0
       ? registration.leagueId
@@ -763,6 +809,7 @@ export const createRegistrationCheckout = onCall(
       const currentRegistration = currentRegistrationSnapshot.data() as RegistrationData;
       const currentOfferingId = validateRegistrationOwner(currentRegistration, playerId);
       validateRegistrationPolicies(currentRegistration);
+      validatePaymentAvailability(currentRegistration, Timestamp.now());
       acquisition = validateAcquisitionAttribution(currentRegistration);
 
       if (currentOfferingId !== offeringId) {
@@ -961,6 +1008,7 @@ export const createRegistrationCheckout = onCall(
         const currentRegistration = currentRegistrationSnapshot.data() as RegistrationData;
         const currentOfferingId = validateRegistrationOwner(currentRegistration, playerId);
         validateRegistrationPolicies(currentRegistration);
+        validatePaymentAvailability(currentRegistration, Timestamp.now());
         const currentAcquisition = validateAcquisitionAttribution(currentRegistration);
         const currentSeatHold = currentSeatHoldSnapshot.data() as SeatHoldData;
 

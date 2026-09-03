@@ -420,7 +420,8 @@ export async function fulfillSuccessfulCheckout(
 
     if (
       registration.status !== 'pending_payment'
-      || registration.registrationOrder !== null
+      || !Number.isInteger(registration.registrationOrder)
+      || Number(registration.registrationOrder) < 1
       || registration.confirmedAt !== null
       || payment.status !== 'pending'
       || seatHold.status !== 'active'
@@ -442,7 +443,7 @@ export async function fulfillSuccessfulCheckout(
       throw new Error('League registration state is invalid.');
     }
 
-    const nextOrder = leagueState.lastAssignedRegistrationOrder + 1;
+    const registrationOrder = Number(registration.registrationOrder);
     const nextConfirmedCount = leagueState.confirmedCount + 1;
     const nextActiveHoldCount = leagueState.activeHoldCount - 1;
 
@@ -459,7 +460,10 @@ export async function fulfillSuccessfulCheckout(
     transaction.update(leagueRef, {
       confirmedCount: nextConfirmedCount,
       activeHoldCount: nextActiveHoldCount,
-      lastAssignedRegistrationOrder: nextOrder,
+      lastAssignedRegistrationOrder: Math.max(
+        leagueState.lastAssignedRegistrationOrder,
+        registrationOrder,
+      ),
       status: nextConfirmedCount === leagueState.capacity ? 'full' : league.status,
       updatedAt: timestamp,
     });
@@ -471,7 +475,6 @@ export async function fulfillSuccessfulCheckout(
     });
     transaction.update(registrationRef, {
       status: 'confirmed',
-      registrationOrder: nextOrder,
       confirmedAt: timestamp,
       updatedAt: timestamp,
     });
@@ -481,7 +484,7 @@ export async function fulfillSuccessfulCheckout(
     });
     transaction.create(rosterRef, {
       displayName,
-      registrationOrder: nextOrder,
+      registrationOrder,
     });
     if (eventRef && event) {
       transaction.create(eventRef, eventRecord(event, session, timestamp));

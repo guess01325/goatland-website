@@ -2442,6 +2442,51 @@ p {
   list-style: none;
 }
 
+.your-registrations {
+  display: grid;
+  gap: var(--space-4);
+  margin-bottom: var(--space-7);
+  border: 1px solid rgba(246, 181, 30, 0.28);
+  border-radius: var(--radius-md);
+  padding: clamp(1.25rem, 3vw, 2rem);
+  background: rgba(12, 17, 24, 0.76);
+}
+
+.your-registrations h2,
+.your-registrations p {
+  margin: 0;
+}
+
+.your-registrations__list {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.your-registrations__list li {
+  display: flex;
+  gap: var(--space-4);
+  justify-content: space-between;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: var(--space-3);
+}
+
+.your-registrations__list li > div {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.your-registrations__list li > div:last-child {
+  text-align: right;
+}
+
+.your-registrations__list span {
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
 .registration-steps li {
   display: flex;
   gap: var(--space-2);

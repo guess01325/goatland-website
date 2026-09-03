@@ -108,6 +108,9 @@ service cloud.firestore {
         'promoCodeSnapshot',
         'promoterIdSnapshot',
         'registrationOrder',
+        'paymentAvailabilityStatus',
+        'paymentAvailableAt',
+        'paymentDueAt',
         'createdAt',
         'updatedAt',
         'submittedAt',
@@ -160,7 +163,16 @@ service cloud.firestore {
       && (request.resource.data.cancelledAt == null
         || request.resource.data.cancelledAt is timestamp)
       && (request.resource.data.registrationOrder == null
-        || request.resource.data.registrationOrder is int);
+        || request.resource.data.registrationOrder is int)
+      && request.resource.data.paymentAvailabilityStatus in [
+        'unavailable',
+        'available',
+        'expired'
+      ]
+      && (request.resource.data.paymentAvailableAt == null
+        || request.resource.data.paymentAvailableAt is timestamp)
+      && (request.resource.data.paymentDueAt == null
+        || request.resource.data.paymentDueAt is timestamp);
     }
 
     function hasValidExistingAcquisitionData() {
@@ -208,33 +220,9 @@ service cloud.firestore {
       allow get: if isOwnedRegistrationId(registrationId)
         && (!exists(/databases/$(database)/documents/registrations/$(registrationId))
           || resource.data.playerId == request.auth.uid);
-      allow list: if false;
-      allow create: if request.auth != null
-        && hasValidRegistrationData()
-        && request.resource.data.playerId == request.auth.uid
-        && !request.resource.data.playerId.matches('.*[|].*')
-        && !request.resource.data.registrationOfferingId.matches('.*[|].*')
-        && registrationId == request.resource.data.playerId + '|'
-          + request.resource.data.registrationOfferingId
-        && exists(/databases/$(database)/documents/players/$(request.auth.uid))
-        && isOpenOffering(request.resource.data.registrationOfferingId)
-        && request.resource.data.leagueId == null
-        && request.resource.data.status == 'pending_payment'
-        && request.resource.data.competitionRulesVersionAccepted
-          == 'competition-rules-2026-08-29-v1'
-        && request.resource.data.refundPolicyVersionAccepted
-          == 'refund-policy-2026-08-29-v1'
-        && request.resource.data.promoCodeId == null
-        && request.resource.data.promoCodeSnapshot == null
-        && request.resource.data.promoterIdSnapshot == null
-        && request.resource.data.registrationOrder == null
-        && request.resource.data.confirmedAt == null
-        && request.resource.data.cancelledAt == null
-        && request.resource.data.competitionRulesAcceptedAt == request.time
-        && request.resource.data.refundPolicyAcceptedAt == request.time
-        && request.resource.data.createdAt == request.time
-        && request.resource.data.updatedAt == request.time
-        && request.resource.data.submittedAt == request.time;
+      allow list: if request.auth != null
+        && resource.data.playerId == request.auth.uid;
+      allow create: if false;
       allow update: if request.auth != null
         && resource.data.playerId == request.auth.uid
         && !exists(
@@ -260,6 +248,10 @@ service cloud.firestore {
           && request.resource.data.updatedAt == request.time)
         );
       allow delete: if false;
+    }
+
+    match /registrationPriorityCounters/{offeringId} {
+      allow read, create, update, delete: if false;
     }
 
     match /payments/{paymentId} {

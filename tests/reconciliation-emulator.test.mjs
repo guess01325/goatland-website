@@ -124,7 +124,7 @@ async function seedHold(label, {
   registrationStatus = 'pending_payment',
   leagueId = LEAGUE_1_ID,
   providerSessionId = refs(label).sessionId,
-  registrationOrder = null,
+  registrationOrder = 1,
   promoCodeSnapshot = null,
   promoterIdSnapshot = null,
 } = {}) {
@@ -293,6 +293,7 @@ test('SeatHold reconciliation R1-R13 and provisioning', async (t) => {
     });
     await db.collection('leagues').doc(LEAGUE_2_ID).delete();
     await seedHold('r3', {
+      registrationOrder: 12,
       promoCodeSnapshot: 'NIGHTFLIGHT',
       promoterIdSnapshot: 'promoter-nightflight',
     });
@@ -510,8 +511,8 @@ test('SeatHold reconciliation R1-R13 and provisioning', async (t) => {
       league1: { confirmedCount: 2, activeHoldCount: 1, lastAssignedRegistrationOrder: 2 },
       league2: { confirmedCount: 5, activeHoldCount: 1, lastAssignedRegistrationOrder: 5 },
     });
-    await seedHold('r13a');
-    await seedHold('r13b', { leagueId: LEAGUE_2_ID });
+    await seedHold('r13a', { registrationOrder: 3 });
+    await seedHold('r13b', { leagueId: LEAGUE_2_ID, registrationOrder: 6 });
     const stripe = new ReconciliationStripe();
     stripe.sessions.set(refs('r13a').sessionId, session('r13a', {
       status: 'complete', payment_status: 'paid',

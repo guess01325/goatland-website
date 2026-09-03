@@ -17,6 +17,7 @@ export const collections = {
   promoCodes: 'promoCodes',
   promoters: 'promoters',
   registrations: 'registrations',
+  registrationPriorityCounters: 'registrationPriorityCounters',
   registrationOfferings: 'registrationOfferings',
   registrationCheckoutLocks: 'registrationCheckoutLocks',
   reconciliationScanCursors: 'reconciliationScanCursors',

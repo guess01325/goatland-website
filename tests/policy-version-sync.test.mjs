@@ -71,12 +71,9 @@ function hasActiveDeclaration(source, constantName, expectedVersion) {
   ).test(activeSource);
 }
 
-function hasActiveRulesComparison(source, fieldName, expectedVersion) {
+function deniesDirectRegistrationCreate(source) {
   const activeSource = stripComments(source);
-  return new RegExp(
-    `^\\s*&&\\s+request\\.resource\\.data\\.${fieldName}\\s*==\\s*'${escapeRegex(expectedVersion)}'`,
-    'm',
-  ).test(activeSource);
+  return /match\s+\/registrations\/\{registrationId\}\s*\{[\s\S]*?allow\s+create:\s*if\s+false\s*;/.test(activeSource);
 }
 
 test('frontend and Functions declare the exact current registration policy versions', () => {
@@ -97,19 +94,8 @@ test('frontend and Functions declare the exact current registration policy versi
   }
 });
 
-test('Firestore Rules compare accepted fields to the exact current policy versions', () => {
-  assert.equal(
-    hasActiveRulesComparison(
-      rules,
-      'competitionRulesVersionAccepted',
-      EXPECTED_COMPETITION,
-    ),
-    true,
-  );
-  assert.equal(
-    hasActiveRulesComparison(rules, 'refundPolicyVersionAccepted', EXPECTED_REFUND),
-    true,
-  );
+test('Firestore Rules deny direct Registration creation so Functions enforce policy versions', () => {
+  assert.equal(deniesDirectRegistrationCreate(rules), true);
 });
 
 test('a commented frontend declaration does not satisfy the authority matcher', () => {
@@ -128,30 +114,15 @@ test('a commented Functions declaration does not satisfy the trusted authority m
   );
 });
 
-test('a commented Firestore comparison does not satisfy the Rules authority matcher', () => {
-  const source = `// && request.resource.data.competitionRulesVersionAccepted == '${EXPECTED_COMPETITION}'`;
-  assert.equal(
-    hasActiveRulesComparison(
-      source,
-      'competitionRulesVersionAccepted',
-      EXPECTED_COMPETITION,
-    ),
-    false,
-  );
+test('a commented Firestore create denial does not satisfy the Rules authority matcher', () => {
+  const source = '// allow create: if false;';
+  assert.equal(deniesDirectRegistrationCreate(source), false);
 });
 
 test('an unrelated version string does not satisfy any authority matcher', () => {
   const source = `const releaseNote = '${EXPECTED_COMPETITION}';`;
   assert.equal(
     hasActiveDeclaration(source, 'CURRENT_COMPETITION_RULES_VERSION', EXPECTED_COMPETITION),
-    false,
-  );
-  assert.equal(
-    hasActiveRulesComparison(
-      source,
-      'competitionRulesVersionAccepted',
-      EXPECTED_COMPETITION,
-    ),
     false,
   );
 });

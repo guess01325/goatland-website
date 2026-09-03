@@ -1,5 +1,6 @@
-import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
-import { auth, db } from '../lib/firebase';
+import { collection, doc, getDoc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
+import { auth, db, functions } from '../lib/firebase';
 import type {
   CreateRegistrationInput,
   Registration,
@@ -54,33 +55,37 @@ export async function getRegistration(
 }
 
 export async function createRegistration(input: CreateRegistrationInput): Promise<string> {
-  const playerId = getAuthenticatedPlayerId();
-  const reference = getRegistrationReference(playerId, input.registrationOfferingId);
-  const timestamp = serverTimestamp();
+  getAuthenticatedPlayerId();
   const acquisition = normalizeAcquisitionAttribution(input);
+  const callable = httpsCallable<CreateRegistrationInput, {
+    registrationId: string;
+    registrationOrder: number;
+  }>(functions, 'createLeagueRegistration');
+  const response = await callable({ ...input, ...acquisition });
 
-  await setDoc(reference, {
-    playerId,
-    registrationOfferingId: input.registrationOfferingId,
-    leagueId: null,
-    status: 'pending_payment',
-    competitionRulesVersionAccepted: input.competitionRulesVersionAccepted,
-    competitionRulesAcceptedAt: timestamp,
-    refundPolicyVersionAccepted: input.refundPolicyVersionAccepted,
-    refundPolicyAcceptedAt: timestamp,
-    ...acquisition,
-    promoCodeId: null,
-    promoCodeSnapshot: null,
-    promoterIdSnapshot: null,
-    registrationOrder: null,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-    submittedAt: timestamp,
-    confirmedAt: null,
-    cancelledAt: null,
-  });
+  if (
+    typeof response.data.registrationId !== 'string'
+    || !Number.isInteger(response.data.registrationOrder)
+    || response.data.registrationOrder < 1
+  ) {
+    throw new Error('Registration service returned an invalid response.');
+  }
+  return response.data.registrationId;
+}
 
-  return reference.id;
+export async function getRegistrations(): Promise<Registration[]> {
+  const playerId = getAuthenticatedPlayerId();
+  const snapshot = await getDocs(query(
+    collection(db, 'registrations'),
+    where('playerId', '==', playerId),
+  ));
+
+  return snapshot.docs
+    .map((registrationDocument) => ({
+      id: registrationDocument.id,
+      ...(registrationDocument.data() as RegistrationDocument),
+    }))
+    .sort((first, second) => second.submittedAt.toMillis() - first.submittedAt.toMillis());
 }
 
 export async function updateRegistrationAcquisitionSource(

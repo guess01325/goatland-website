@@ -1,3 +1,5 @@
+import { standardLeagueStructureRules } from './leagueStructure';
+
 export const CURRENT_COMPETITION_RULES_VERSION = 'competition-rules-2026-08-29-v1';
 export const CURRENT_REFUND_POLICY_VERSION = 'refund-policy-2026-08-29-v1';
 export const REGISTRATION_POLICIES_EFFECTIVE_DATE = 'August 29, 2026';
@@ -14,11 +16,9 @@ export const competitionPolicySections: readonly PolicySection[] = [
   {
     title: 'League Structure',
     items: [
-      'Maximum 16 players per League.',
-      'Five-week regular season.',
-      'Two League matches per week.',
+      ...standardLeagueStructureRules.slice(0, 3),
       'Matchups are best-of-five unless applicable game-specific rules establish a different format.',
-      'The top eight players advance to the playoffs.',
+      ...standardLeagueStructureRules.slice(3),
       'Playoffs are single elimination.',
       'A League champion is crowned.',
     ],
@@ -26,9 +26,12 @@ export const competitionPolicySections: readonly PolicySection[] = [
   {
     title: 'Registration',
     items: [
-      'Players choose a Game, Tier, League Start Date, and League.',
-      "Successful payment confirms the player's Registration.",
-      'Registration order is assigned only after successful payment confirmation.',
+      'Players choose a Game, Tier, and League Start Date.',
+      'Registration order is assigned when the Registration is submitted.',
+      'League placement is assigned later when payment becomes available.',
+      'GOATLAND will notify registered players when payment confirmation launches for their Registration.',
+      'Once payment becomes available, the player has 48 hours to complete payment and hold the spot before it may be released.',
+      "Successful payment confirms the player's Registration and League placement.",
       'Players do not manually choose their registration-order number.',
     ],
   },

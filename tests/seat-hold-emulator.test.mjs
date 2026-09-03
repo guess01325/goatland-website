@@ -16,9 +16,11 @@ import {
   getDoc,
   getDocs,
   getFirestore as getClientFirestore,
+  query,
   serverTimestamp,
   setDoc,
   updateDoc,
+  where,
 } from 'firebase/firestore';
 
 const PROJECT_ID = 'goatland-development';
@@ -57,7 +59,9 @@ const {
   createRegistrationCheckout,
   releaseProvisioningHold,
   setCheckoutTestHookForEmulatorTests,
+  setRegistrationPaymentLaunchForEmulatorTests,
 } = await import('../functions/lib/checkout.js');
+const { createLeagueRegistration } = await import('../functions/lib/registrations.js');
 const {
   expireCheckout,
   fulfillSuccessfulCheckout,
@@ -188,12 +192,17 @@ async function seedFixture({ league1 = {}, league2 = {}, registrations = [] } = 
   batch.set(db.collection('leagues').doc(LEAGUE_1_ID), leagueData(1, league1));
   batch.set(db.collection('leagues').doc(LEAGUE_2_ID), leagueData(2, league2));
 
-  for (const {
+  const firstRegistrationOrder = Math.max(
+    Number(league1.lastAssignedRegistrationOrder ?? 0),
+    Number(league2.lastAssignedRegistrationOrder ?? 0),
+  ) + 1;
+  for (const [index, {
     label,
     leagueId = null,
     acquisitionSource = 'facebook',
     acquisitionSourceOther = null,
-  } of registrations) {
+    registrationOrder = firstRegistrationOrder + index,
+  }] of registrations.entries()) {
     const identity = identities[label];
     batch.set(db.collection('players').doc(identity.uid), {
       displayName: `Player ${label}`,
@@ -221,7 +230,10 @@ async function seedFixture({ league1 = {}, league2 = {}, registrations = [] } = 
       promoCodeId: null,
       promoCodeSnapshot: null,
       promoterIdSnapshot: null,
-      registrationOrder: null,
+      registrationOrder,
+      paymentAvailabilityStatus: 'available',
+      paymentAvailableAt: Timestamp.fromMillis(now.toMillis() - 60 * 60 * 1000),
+      paymentDueAt: Timestamp.fromMillis(now.toMillis() + 47 * 60 * 60 * 1000),
       createdAt: now,
       updatedAt: now,
       submittedAt: now,
@@ -356,6 +368,9 @@ function clientRegistrationData(label, acquisition = {
     promoCodeSnapshot: null,
     promoterIdSnapshot: null,
     registrationOrder: null,
+    paymentAvailabilityStatus: 'unavailable',
+    paymentAvailableAt: null,
+    paymentDueAt: null,
     createdAt: timestamp,
     updatedAt: timestamp,
     submittedAt: timestamp,
@@ -368,10 +383,15 @@ function clientRegistrationData(label, acquisition = {
 async function recreateRegistrationAsClient(label, acquisition) {
   await seedFixture({ registrations: [{ label }] });
   await db.collection('registrations').doc(registrationId(label)).delete();
-  await withClient(label, (firestore) => setDoc(
-    doc(firestore, 'registrations', registrationId(label)),
-    clientRegistrationData(label, acquisition),
-  ));
+  await createLeagueRegistration.run({
+    auth: { uid: identities[label].uid, token: { email: identities[label].email } },
+    data: {
+      registrationOfferingId: OFFERING_ID,
+      competitionRulesVersionAccepted: 'competition-rules-2026-08-29-v1',
+      refundPolicyVersionAccepted: 'refund-policy-2026-08-29-v1',
+      ...acquisition,
+    },
+  });
 }
 
 async function updateAcquisitionAsClient(label, acquisition) {
@@ -408,6 +428,62 @@ async function seedOtherOfferingLeague(overrides = {}) {
 }
 
 await Promise.all(['a', 'b', 'c'].map(createIdentity));
+setRegistrationPaymentLaunchForEmulatorTests(true);
+
+test('launch registration assigns atomic priority without starting payment', async () => {
+  await seedFixture({ registrations: [{ label: 'a' }, { label: 'b' }] });
+  await Promise.all([
+    db.collection('registrations').doc(registrationId('a')).delete(),
+    db.collection('registrations').doc(registrationId('b')).delete(),
+  ]);
+
+  const createRequest = (label) => createLeagueRegistration.run({
+    auth: { uid: identities[label].uid, token: { email: identities[label].email } },
+    data: {
+      registrationOfferingId: OFFERING_ID,
+      competitionRulesVersionAccepted: 'competition-rules-2026-08-29-v1',
+      refundPolicyVersionAccepted: 'refund-policy-2026-08-29-v1',
+      acquisitionSource: 'facebook',
+      acquisitionSourceOther: null,
+    },
+  });
+
+  setRegistrationPaymentLaunchForEmulatorTests(false);
+  try {
+    const created = await Promise.all([createRequest('a'), createRequest('b')]);
+    assert.deepEqual(
+      created.map(({ registrationOrder }) => registrationOrder).sort((a, b) => a - b),
+      [1, 2],
+    );
+
+    const registrations = await Promise.all(['a', 'b'].map(async (label) => (
+      (await db.collection('registrations').doc(registrationId(label)).get()).data()
+    )));
+    assert.deepEqual(
+      registrations.map(({ registrationOrder }) => registrationOrder).sort((a, b) => a - b),
+      [1, 2],
+    );
+    for (const registration of registrations) {
+      assert.equal(registration.leagueId, null);
+      assert.equal(registration.status, 'pending_payment');
+      assert.equal(registration.paymentAvailabilityStatus, 'unavailable');
+      assert.equal(registration.paymentAvailableAt, null);
+      assert.equal(registration.paymentDueAt, null);
+    }
+
+    const stripe = new FakeStripe();
+    setStripeForEmulatorTests(stripe);
+    await assert.rejects(
+      checkout('a'),
+      /Payment confirmation has not launched/,
+    );
+    assert.equal(stripe.createCount, 0);
+    assert.equal((await documents('payments')).length, 0);
+    assert.equal((await documents('seatHolds')).length, 0);
+  } finally {
+    setRegistrationPaymentLaunchForEmulatorTests(true);
+  }
+});
 
 test('Registration deterministic get rules RGET1-RGET7', async (t) => {
   await t.test('RGET1 owner get of an absent Registration resolves as not found', async () => {
@@ -447,9 +523,14 @@ test('Registration deterministic get rules RGET1-RGET7', async (t) => {
     )));
   });
 
-  await t.test('RGET5 Registration list access remains denied', async () => {
+  await t.test('RGET5 owner-filtered Registration list is allowed and unrestricted list is denied', async () => {
     await seedFixture({ registrations: [{ label: 'a' }] });
 
+    const snapshot = await withClient('a', (firestore) => getDocs(query(
+      collection(firestore, 'registrations'),
+      where('playerId', '==', identities.a.uid),
+    )));
+    assert.equal(snapshot.size, 1);
     await assert.rejects(withClient('a', (firestore) => getDocs(
       collection(firestore, 'registrations'),
     )));
@@ -492,10 +573,17 @@ test('Registration policy authority P1-P20', async (t) => {
   }
 
   async function createAsClient(overrides = {}) {
-    return withClient('a', (firestore) => setDoc(
-      doc(firestore, 'registrations', registrationId('a')),
-      clientRegistrationData('a', undefined, overrides),
-    ));
+    return createLeagueRegistration.run({
+      auth: { uid: identities.a.uid, token: { email: identities.a.email } },
+      data: {
+        registrationOfferingId: OFFERING_ID,
+        competitionRulesVersionAccepted: 'competition-rules-2026-08-29-v1',
+        refundPolicyVersionAccepted: 'refund-policy-2026-08-29-v1',
+        acquisitionSource: 'facebook',
+        acquisitionSourceOther: null,
+        ...overrides,
+      },
+    });
   }
 
   await t.test('P1 exact current versions create a pending Registration', async () => {
@@ -1028,7 +1116,7 @@ test('SeatHold emulator lifecycle A-L', async (t) => {
     assert.equal(hold.expiresAt.toMillis(), stripe.sessions.get(payment.providerCheckoutSessionId).expires_at * 1000);
     assert.equal(payment.status, 'pending');
     assert.equal(current.league.activeHoldCount, 1);
-    assert.equal(current.registration.registrationOrder, null);
+    assert.equal(current.registration.registrationOrder, 1);
     assert.equal(current.lock.data().paymentId, result.paymentId);
     assert.equal(current.roster.length, 0);
   });
@@ -1215,7 +1303,7 @@ test('SeatHold emulator lifecycle A-L', async (t) => {
     ]);
     assert.deepEqual(
       [league1.data().confirmedCount, league1.data().activeHoldCount, league1.data().lastAssignedRegistrationOrder],
-      [4, 0, 4],
+      [4, 0, 7],
     );
     assert.deepEqual(
       [league2.data().confirmedCount, league2.data().activeHoldCount, league2.data().lastAssignedRegistrationOrder],
@@ -1229,7 +1317,7 @@ test('SeatHold emulator lifecycle A-L', async (t) => {
     assert.equal(roster2.size, 0);
     assert.deepEqual(
       roster1.docs.map((doc) => doc.data().registrationOrder).sort((a, b) => a - b),
-      [3, 4],
+      [6, 7],
     );
   });
 });
@@ -1570,10 +1658,16 @@ test('Automatic League assignment AL1-AL16 and successors S17-S24/S26', async (t
   await t.test('AL1 new client Registration stores leagueId null', async () => {
     await seedFixture({ registrations: [{ label: 'a' }] });
     await db.collection('registrations').doc(registrationId('a')).delete();
-    await withClient('a', (firestore) => setDoc(
-      doc(firestore, 'registrations', registrationId('a')),
-      clientRegistrationData('a'),
-    ));
+    await createLeagueRegistration.run({
+      auth: { uid: identities.a.uid, token: { email: identities.a.email } },
+      data: {
+        registrationOfferingId: OFFERING_ID,
+        competitionRulesVersionAccepted: 'competition-rules-2026-08-29-v1',
+        refundPolicyVersionAccepted: 'refund-policy-2026-08-29-v1',
+        acquisitionSource: 'facebook',
+        acquisitionSourceOther: null,
+      },
+    });
     assert.equal((await state('a')).registration.leagueId, null);
   });
 

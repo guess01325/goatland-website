@@ -3,7 +3,6 @@ import type { LeagueStart } from '../../models/LeagueStart';
 import type { Registration } from '../../models/Registration';
 import type { RegistrationOffering } from '../../models/RegistrationOffering';
 import type { Tier } from '../../models/Tier';
-import { REGISTRATION_PAYMENT_UNAVAILABLE_MESSAGE } from '../../lib/registrationPaymentGate';
 
 type RegistrationCheckoutProps = {
   registration: Registration;
@@ -58,6 +57,27 @@ export function RegistrationCheckout({
   error,
   onPay,
 }: RegistrationCheckoutProps) {
+  if (!paymentsEnabled || registration.paymentAvailabilityStatus !== 'available') {
+    return (
+      <section className="registration-checkout" aria-labelledby="registration-status-title">
+        <div>
+          <p className="eyebrow">Registration saved</p>
+          <h2 id="registration-status-title">Your place in the signup order is secured.</h2>
+          <p>
+            Your Registration is complete and your priority number is #{registration.registrationOrder}.
+            No payment is due now.
+          </p>
+        </div>
+        <p>
+          GOATLAND will notify you when payment confirmation becomes available through the
+          approved payment provider. Your 48-hour payment window begins only when that notice is
+          issued. Complete payment within that window to hold and confirm your spot; after the
+          window closes, the spot may be released.
+        </p>
+      </section>
+    );
+  }
+
   return (
     <section className="registration-checkout" aria-labelledby="registration-checkout-title">
       <div>
@@ -84,19 +104,12 @@ export function RegistrationCheckout({
         </p>
       ) : null}
 
-      {!paymentsEnabled ? (
-        <p className="registration-field-error" role="status">
-          {REGISTRATION_PAYMENT_UNAVAILABLE_MESSAGE}
-        </p>
-      ) : null}
-
       <button
         className="button-link"
         type="button"
         aria-busy={starting || undefined}
         disabled={
-          !paymentsEnabled
-          || !eligible
+          !eligible
           || starting
           || registration.status !== 'pending_payment'
         }

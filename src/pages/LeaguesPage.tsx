@@ -1,5 +1,6 @@
 import { PageHeader } from '../components/PageHeader';
 import { SectionHeading } from '../components/SectionHeading';
+import { standardLeagueStructureRules } from '../data/leagueStructure';
 
 type LeagueTier = {
   id: string;
@@ -141,7 +142,20 @@ export function LeaguesPage() {
       <section className="section league-tier-section">
         <div className="container">
           <SectionHeading
-            eyebrow="Section 8"
+            eyebrow="League Format"
+            title="The GOATLAND League Structure"
+            description="Every standard League follows the same regular-season and playoff format."
+          />
+          <article className="league-important-panel">
+            <ul className="feature-list">
+              {standardLeagueStructureRules.map((rule) => (
+                <li key={rule}>{rule}</li>
+              ))}
+            </ul>
+          </article>
+
+          <SectionHeading
+            eyebrow="League Tiers"
             title="League Tiers and Payouts"
             description="Each tier keeps the champion prize separate from the playoff-position payout ladder."
           />

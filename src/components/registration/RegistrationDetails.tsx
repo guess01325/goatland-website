@@ -150,7 +150,7 @@ export function RegistrationDetails({
         </button>
       ) : detailsComplete ? (
         <p className="registration-details__status" role="status">
-          Details ready. Competition rules and payment will be available after final registration details are published.
+          Details ready. Review and accept the policies to save your Registration and signup priority.
         </p>
       ) : null}
 

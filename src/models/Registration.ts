@@ -9,6 +9,14 @@ export const REGISTRATION_STATUSES = [
 
 export type RegistrationStatus = (typeof REGISTRATION_STATUSES)[number];
 
+export const PAYMENT_AVAILABILITY_STATUSES = [
+  'unavailable',
+  'available',
+  'expired',
+] as const;
+
+export type PaymentAvailabilityStatus = (typeof PAYMENT_AVAILABILITY_STATUSES)[number];
+
 export const ACQUISITION_SOURCES = [
   'facebook',
   'instagram',
@@ -73,7 +81,10 @@ export type Registration = {
   promoCodeId: string | null;
   promoCodeSnapshot: string | null;
   promoterIdSnapshot: string | null;
-  registrationOrder: number | null;
+  registrationOrder: number;
+  paymentAvailabilityStatus: PaymentAvailabilityStatus;
+  paymentAvailableAt: Timestamp | null;
+  paymentDueAt: Timestamp | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;
   submittedAt: Timestamp;
