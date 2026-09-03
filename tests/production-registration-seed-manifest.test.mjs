@@ -77,10 +77,10 @@ test('production launch Games, Tiers, and promos are exact', () => {
     ],
   );
   assert.deepEqual(byCollection.promoters.map(({ id }) => id), [
-    'otis-guess', 'night-flight-basketball', 'chris76tx',
+    'otis-guess', 'night-flight-basketball', 'chris76tx', 'anthony-phillips',
   ]);
   assert.deepEqual(byCollection.promoCodes.map(({ id }) => id), [
-    'LOCKEDIN', 'NFBL860', 'CHRIS76TX',
+    'LOCKEDIN', 'NFBL860', 'CHRIS76TX', 'NBAANT860',
   ]);
 });
 
@@ -165,7 +165,6 @@ test('manifest touches only approved top-level collections and excludes test fix
   ]);
   const paths = manifest.map(({ collection, id }) => `${collection}/${id}`).join('\n');
   for (const forbidden of [
-    'NBAANT860',
     'E2E-REFERRAL',
     'e2e-hosted-referral-promoter',
     'madden-ultimate-team__2026-',
