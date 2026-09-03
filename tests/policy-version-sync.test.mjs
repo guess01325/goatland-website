@@ -6,10 +6,10 @@ import test from 'node:test';
 const EXPECTED_COMPETITION = 'competition-rules-2026-08-29-v1';
 const EXPECTED_REFUND = 'refund-policy-2026-08-29-v1';
 
-const [frontend, rules, functionsConfig] = await Promise.all([
+const [frontend, rules, functionsPolicies] = await Promise.all([
   readFile(new URL('../src/data/registrationPolicies.ts', import.meta.url), 'utf8'),
   readFile(new URL('../firestore.rules', import.meta.url), 'utf8'),
-  readFile(new URL('../functions/src/config.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../functions/src/registrationPolicies.ts', import.meta.url), 'utf8'),
 ]);
 
 function escapeRegex(value) {
@@ -79,7 +79,7 @@ function deniesDirectRegistrationCreate(source) {
 test('frontend and Functions declare the exact current registration policy versions', () => {
   for (const [label, source] of [
     ['frontend', frontend],
-    ['Functions', functionsConfig],
+    ['Functions', functionsPolicies],
   ]) {
     assert.equal(
       hasActiveDeclaration(source, 'CURRENT_COMPETITION_RULES_VERSION', EXPECTED_COMPETITION),

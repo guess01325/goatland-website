@@ -1,29 +1,9 @@
 import { createHash } from 'node:crypto';
-import { getApps, initializeApp } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
 import Stripe from 'stripe';
 import { stripeSecretKey } from './config.js';
+import { collections, db } from './firebaseCore.js';
 
-if (getApps().length === 0) {
-  initializeApp();
-}
-
-export const db = getFirestore();
-
-export const collections = {
-  payments: 'payments',
-  players: 'players',
-  leagues: 'leagues',
-  promoCodes: 'promoCodes',
-  promoters: 'promoters',
-  registrations: 'registrations',
-  registrationPriorityCounters: 'registrationPriorityCounters',
-  registrationOfferings: 'registrationOfferings',
-  registrationCheckoutLocks: 'registrationCheckoutLocks',
-  reconciliationScanCursors: 'reconciliationScanCursors',
-  seatHolds: 'seatHolds',
-  stripeWebhookEvents: 'stripeWebhookEvents',
-} as const;
+export { collections, db };
 
 export const LEAGUE_CAPACITY = 16;
 export const LEAGUE_SUCCESSOR_THRESHOLD = 12;

@@ -3,8 +3,8 @@ import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import {
   CURRENT_COMPETITION_RULES_VERSION,
   CURRENT_REFUND_POLICY_VERSION,
-} from './config.js';
-import { collections, db } from './shared.js';
+} from './registrationPolicies.js';
+import { collections, db } from './firebaseCore.js';
 
 type CreateRegistrationRequest = {
   registrationOfferingId?: unknown;
