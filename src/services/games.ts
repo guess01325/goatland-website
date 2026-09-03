@@ -3,7 +3,13 @@ import { db } from '../lib/firebase';
 import type { Game, GameDocument } from '../models/Game';
 
 const gamesCollection = collection(db, 'games');
-const INDIVIDUAL_REGISTRATION_EXCLUDED_GAME_ID = 'call-of-duty';
+const TEAM_REGISTRATION_GAME_ID = 'call-of-duty';
+
+export function isIndividualRegistrationGameSelectable(
+  { id, status }: Pick<Game, 'id' | 'status'>,
+): boolean {
+  return status === 'active' && id !== TEAM_REGISTRATION_GAME_ID;
+}
 
 export async function getGame(gameId: string): Promise<Game | null> {
   const snapshot = await getDoc(doc(gamesCollection, gameId));
@@ -30,8 +36,5 @@ export async function getGames(): Promise<Game[]> {
 export async function getRegistrationGames(): Promise<Game[]> {
   const games = await getGames();
 
-  return games.filter(({ id, status }) => (
-    id !== INDIVIDUAL_REGISTRATION_EXCLUDED_GAME_ID
-    && (status === 'active' || status === 'coming_soon')
-  ));
+  return games.filter(({ status }) => status === 'active' || status === 'coming_soon');
 }

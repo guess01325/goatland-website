@@ -26,7 +26,10 @@ import {
   type CheckoutAttempt,
 } from '../lib/checkoutAttempt';
 import { createRegistrationCheckout } from '../services/checkout';
-import { getRegistrationGames } from '../services/games';
+import {
+  getRegistrationGames,
+  isIndividualRegistrationGameSelectable,
+} from '../services/games';
 import { getLeagueStartsForGame } from '../services/leagueStarts';
 import { getRegistrationOfferingsForLeagueStartAndTier } from '../services/registrationOfferings';
 import {
@@ -173,7 +176,9 @@ export function RegistrationPage() {
   const tierId = searchParams.get('tier');
   const offeringId = searchParams.get('start');
 
-  const selectedGame = games.find((game) => game.id === gameId && game.status === 'active') ?? null;
+  const selectedGame = games.find((game) => (
+    game.id === gameId && isIndividualRegistrationGameSelectable(game)
+  )) ?? null;
   const selectedTier = tiers.find((tier) => tier.id === tierId) ?? null;
   const selectedStart = startOptions.find((option) => option.offering.id === offeringId) ?? null;
   currentOfferingId.current = selectedStart?.offering.id ?? null;
@@ -699,7 +704,16 @@ export function RegistrationPage() {
   const currentStep = managedRegistration?.status === 'pending_payment'
     ? 6
     : policiesAvailable ? 5 : selectedStart ? 4 : selectedTier ? 3 : selectedGame ? 2 : 1;
-  const activeGames = useMemo(() => games.filter(({ status }) => status === 'active'), [games]);
+  const activeGames = useMemo(
+    () => games.filter(isIndividualRegistrationGameSelectable),
+    [games],
+  );
+  const teamRegistrationGames = useMemo(
+    () => games.filter((game) => (
+      game.status === 'active' && !isIndividualRegistrationGameSelectable(game)
+    )),
+    [games],
+  );
   const comingSoonGames = useMemo(
     () => games.filter(({ status }) => status === 'coming_soon'),
     [games],
@@ -754,6 +768,15 @@ export function RegistrationPage() {
                         onSelect={() => setPickerParams({
                           game: game.id, tier: null, start: null,
                         })}
+                      />
+                    ))}
+                    {teamRegistrationGames.map((game) => (
+                      <SelectionCard
+                        key={game.id}
+                        title={`${game.name}${game.edition ? ` ${game.edition}` : ''}`}
+                        description="Squad and roster registration is being finalized."
+                        badge="Team Registration Coming Soon"
+                        disabled
                       />
                     ))}
                     {comingSoonGames.map((game) => (
